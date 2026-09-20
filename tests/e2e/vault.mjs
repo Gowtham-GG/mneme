@@ -1,0 +1,206 @@
+import { chromium } from 'playwright-core'
+import crypto from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+
+// Browser test for the encrypted Passwords vault. Same prerequisites as tests/e2e/smoke.mjs (local stack + preview build + playwright-core).
+const T = process.env.MNEME_E2E_DIR ?? '/tmp/mneme-e2e'
+mkdirSync(T + '/shots', { recursive: true })
+const SECRET = 'super-secret-jwt-token-with-at-least-32-characters-long'
+const UID = 'aaaaaaaa-0000-0000-0000-0000000000e2'
+const psql = (sql) => execFileSync('psql', ['-h', '127.0.0.1', '-p', '54329', '-U', 'postgres', '-d', 'postgres', '-Atc', sql]).toString().trim()
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+const exp = Math.floor(Date.now() / 1000) + 86400
+const head = b64({ alg: 'HS256', typ: 'JWT' }), body = b64({ sub: UID, role: 'authenticated', aud: 'authenticated', exp })
+const jwt = `${head}.${body}.${crypto.createHmac('sha256', SECRET).update(`${head}.${body}`).digest('base64url')}`
+const session = JSON.stringify({ access_token: jwt, token_type: 'bearer', expires_in: 86400, expires_at: exp, refresh_token: 'x', user: { id: UID, aud: 'authenticated', role: 'authenticated', email: 'e2e@test', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() } })
+
+psql(`insert into auth.users(id,email) values ('${UID}','e2e@test') on conflict do nothing`)
+psql(`insert into mneme.settings(user_id,timezone) values ('${UID}','Asia/Kolkata') on conflict do nothing`)
+// seed a little history (as admin: user_id given explicitly)
+const seed = [] ; const _unused = [
+  ['JVM Memory', 'Heap, stack and metaspace. #java #jvm/memory', 'knowledge', "now() - interval '3 days'"],
+  ['ClassLoader delegation', 'Parent delegation model.\n? why does the JVM use parent delegation\n- [ ] Read ClassLoader docs\n#java #jvm/classloading', 'question', "now() - interval '1 day'"],
+  [null, 'Idea: a keyboard shortcut cheat sheet for the app', 'capture', "now() - interval '5 hours'"],
+]
+for (const [t, c, ty, at] of seed) psql(`insert into mneme.notes(user_id,title,content,note_type,created_at) values ('${UID}', ${t ? `'${t}'` : 'null'}, '${c.replace(/'/g, "''")}', '${ty}', ${at})`)
+
+const errors = []
+const log = (...a) => console.log(...a)
+const browser = await chromium.launch()
+const CSP_HEADER = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' http://127.0.0.1:54331; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+async function newCtx(viewport, colorScheme = 'light') {
+  const ctx = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 1 })
+  await ctx.addInitScript((s) => { try { localStorage.setItem('mneme-auth', s) } catch {} }, session)
+  const page = await ctx.newPage()
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`[console] ${m.text()}`) })
+  page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
+  page.on('requestfailed', (r) => { if (!r.url().includes('/sw.js')) errors.push(`[reqfailed] ${r.method()} ${r.url()} ${r.failure()?.errorText}`) })
+  return { ctx, page }
+}
+const shot = (page, name) => page.screenshot({ path: `${T}/shots/${name}.png`, fullPage: false })
+
+
+const MASTER = 'lantern orbit velvet quartz meadow'
+const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗ FAIL', m); if (!c) process.exitCode = 1 }
+const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } })
+await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' })
+await ctx.addInitScript((s) => { try { localStorage.setItem('mneme-auth', s); localStorage.setItem('mneme-theme','amethyst') } catch {} }, session)
+const page = await ctx.newPage()
+page.on('console', (m) => { if (m.type() === 'error') errors.push(`[console] ${m.text()}`) })
+page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
+psql(`delete from mneme.vault_items where user_id='${UID}'; delete from mneme.vault_meta where user_id='${UID}'`)
+
+await page.goto('http://127.0.0.1:4173/passwords')
+await page.waitForSelector('text=Create your master passphrase')
+await shot(page, '60-vault-setup')
+console.log('SETUP')
+await page.fill('#mp1', 'short'); await page.fill('#mp2', 'short')
+await page.check('input[type=checkbox]')
+await page.getByRole('button', { name: 'Create vault' }).click()
+ok(await page.getByText(/at least 12 characters/).count() > 0, 'a short passphrase is rejected')
+await page.fill('#mp1', 'passwordpassword'); await page.fill('#mp2', 'passwordpassword')
+await page.getByRole('button', { name: 'Create vault' }).click()
+ok(await page.getByText(/too easy to guess/).count() > 0, 'a guessable passphrase is rejected')
+await page.fill('#mp1', MASTER); await page.fill('#mp2', MASTER + 'x')
+await page.getByRole('button', { name: 'Create vault' }).click()
+ok(await page.getByText(/don’t match/).count() > 0, 'mismatched confirmation is rejected')
+await page.fill('#mp2', MASTER)
+await page.getByRole('button', { name: 'Create vault' }).click()
+await page.waitForSelector('text=Your vault is empty', { timeout: 15000 })
+ok(psql(`select count(*) from mneme.vault_meta where user_id='${UID}'`) === '1', 'vault created (KDF parameters stored)')
+ok(psql(`select iterations from mneme.vault_meta where user_id='${UID}'`) === '600000', 'PBKDF2 uses 600 000 iterations')
+
+console.log('ADD LOGINS')
+async function addLogin(site, user, pass, notes = '') {
+  await page.getByRole('button', { name: /^Add login$|Add your first login/ }).first().click()
+  await page.waitForSelector('#v-site')
+  await page.fill('#v-site', site); await page.fill('#v-user', user)
+  if (pass) await page.fill('#v-pass', pass)
+  if (notes) await page.fill('#v-notes', notes)
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.waitForSelector('#v-site', { state: 'hidden' })
+}
+await page.getByRole('button', { name: 'Add your first login' }).click()
+await page.fill('#v-site', 'https://www.GitHub.com/login'); await page.fill('#v-user', 'work@corp.com')
+await page.getByRole('button', { name: /Generate/ }).click()
+const generated = await page.inputValue('#v-pass')
+ok(generated.length === 20 && /[A-Z]/.test(generated) && /[a-z]/.test(generated) && /[0-9]/.test(generated), `generator produced a strong 20-char password (${generated.replace(/./g, '•')})`)
+await shot(page, '61-vault-dialog')
+await page.getByRole('button', { name: 'Save', exact: true }).click()
+await page.waitForSelector('#v-site', { state: 'hidden' })
+await addLogin('github.com', 'me@home.com', 'Hunter2-Zebra-77!', 'recovery code 4455')
+await addLogin('netflix.com', 'family', 'Nf!ix-2026-abc')
+await page.waitForTimeout(500)
+const groups = await page.locator('main h2').allInnerTexts()
+ok(JSON.stringify(groups) === JSON.stringify(['github.com', 'netflix.com']), `logins grouped by website: ${JSON.stringify(groups)}`)
+ok((await page.getByText('2 logins').count()) === 1, 'github.com shows 2 logins (multiple credentials per site)')
+await shot(page, '62-vault-list')
+
+console.log('COPY BUTTONS')
+const gh = page.locator('section', { has: page.getByRole('heading', { name: 'github.com' }) })
+await gh.getByRole('button', { name: 'Copy username' }).first().click()
+ok((await page.evaluate(() => navigator.clipboard.readText())) === 'me@home.com', 'copy username → clipboard has the username (rows are sorted by username)')
+await gh.getByRole('button', { name: 'Copy password' }).nth(0).click()
+ok((await page.evaluate(() => navigator.clipboard.readText())) === 'Hunter2-Zebra-77!', 'copy password → clipboard has the password')
+ok(await page.getByText(/clears from the clipboard in 30 s/).count() > 0, 'toast tells you the clipboard will be cleared')
+const shown = await gh.getByLabel('password hidden').first().innerText()
+ok(!/[A-Za-z0-9]/.test(shown), 'passwords are masked by default')
+await gh.getByRole('button', { name: 'Show password' }).nth(0).click()
+ok(await gh.getByText('Hunter2-Zebra-77!').count() === 1, 'the eye button reveals the password')
+
+console.log('WHAT THE DATABASE STORES')
+const stored = psql(`select string_agg(payload, ' ') from mneme.vault_items where user_id='${UID}'`) + psql(`select check_payload||salt from mneme.vault_meta where user_id='${UID}'`)
+ok(psql(`select count(*) from mneme.vault_items where user_id='${UID}'`) === '3', '3 encrypted rows stored')
+ok(!['Hunter2', 'github', 'corp.com', 'home.com', 'netflix', 'family', 'recovery code', generated, MASTER].some((n) => stored.includes(n)), 'NO plaintext (site, username, password, notes, master passphrase) appears in the database')
+ok(/^v1\./.test(psql(`select payload from mneme.vault_items limit 1`)), 'rows are opaque AES-GCM payloads')
+
+console.log('LOCK / UNLOCK')
+await page.getByRole('button', { name: 'Lock the vault now' }).click()
+await page.waitForSelector('text=Locked. Enter your master passphrase.')
+ok(await page.getByText('Hunter2-Zebra-77!').count() === 0, 'locking removes every password from the page')
+await page.fill('#unlock', 'wrong wrong wrong wrong')
+await page.getByRole('button', { name: 'Unlock' }).click()
+await page.waitForSelector('text=That passphrase is wrong.')
+ok(true, 'wrong passphrase is refused')
+await page.fill('#unlock', MASTER)
+await page.getByRole('button', { name: 'Unlock' }).click()
+await page.waitForSelector('text=Encrypted vault')
+ok(await page.getByRole('heading', { name: 'netflix.com' }).count() === 1, 'right passphrase unlocks and decrypts everything')
+await page.reload()
+await page.waitForSelector('text=Locked. Enter your master passphrase.')
+ok(true, 'a page reload locks the vault again (the key is never persisted)')
+ok(Object.keys(await page.evaluate(() => ({ ...localStorage }))).every((k) => !/vault|pass/i.test(k) || k === 'mneme-vault-timeout'), 'nothing secret in localStorage')
+await page.fill('#unlock', MASTER); await page.getByRole('button', { name: 'Unlock' }).click()
+await page.waitForSelector('text=Encrypted vault')
+
+console.log('SEARCH / EDIT / DELETE')
+await page.fill('input[type=search]', 'netflix')
+ok(await page.locator('main h2').count() === 1, 'search filters by website')
+await page.fill('input[type=search]', 'recovery')
+ok((await page.locator('main h2').allInnerTexts()).join() === 'github.com', 'search also covers (decrypted) notes')
+await page.fill('input[type=search]', '')
+await page.getByRole('button', { name: /Edit login family/ }).click()
+await page.fill('#v-pass', 'Nf!ix-CHANGED-99')
+await page.getByRole('button', { name: 'Save', exact: true }).click()
+await page.waitForSelector('#v-site', { state: 'hidden' })
+await page.reload(); await page.fill('#unlock', MASTER); await page.getByRole('button', { name: 'Unlock' }).click(); await page.waitForSelector('text=Encrypted vault')
+const nf = page.locator('section', { has: page.getByRole('heading', { name: 'netflix.com' }) })
+await nf.getByRole('button', { name: 'Show password' }).click()
+ok(await nf.getByText('Nf!ix-CHANGED-99').count() === 1, 'edit persists across reload')
+await page.getByRole('button', { name: /Edit login family/ }).click()
+await page.getByRole('button', { name: 'Delete', exact: true }).click()
+await page.getByRole('button', { name: 'Delete', exact: true }).last().click()
+await page.waitForTimeout(600)
+ok(await page.getByRole('heading', { name: 'netflix.com' }).count() === 0 && psql(`select count(*) from mneme.vault_items where user_id='${UID}'`) === '2', 'delete removes it from the vault and the database')
+
+console.log('IMPORT / EXPORT')
+const csv = 'name,url,username,password,note\nreddit.com,https://www.reddit.com/login,redditor,r3dd1t-pw,\ngithub.com,https://github.com,me@home.com,Hunter2-Zebra-77!,dup\nexample.org,https://example.org,eve,"pw,with""quotes",multi\nline\n'
+await page.locator('button[aria-label="Vault options"]').click()
+console.log('   menu items:', JSON.stringify(await page.getByRole('menuitem').allInnerTexts()), '| file inputs:', await page.locator('input[type=file]').count())
+const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('menuitem', { name: /Import from CSV/ }).click()])
+await chooser.setFiles({ name: 'chrome.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })
+await page.waitForSelector('text=Found')
+console.log('   ', (await page.locator('dialog[open]').innerText()).replace(/\s+/g, ' ').slice(0, 150))
+await page.getByRole('button', { name: 'Import', exact: true }).click()
+await page.waitForSelector('text=/Imported 2 logins/')
+ok(await page.getByText(/1 already in the vault/).count() > 0, 'import adds 2 new logins and skips the exact duplicate')
+await page.waitForTimeout(400)
+ok((await page.locator('main h2').allInnerTexts()).join() === 'example.org,github.com,reddit.com', 'imported sites appear, grouped')
+await shot(page, '63-vault-after-import')
+await page.locator('button[aria-label="Vault options"]').click()
+await page.getByRole('menuitem', { name: /Export as CSV/ }).click()
+ok(await page.getByText(/PLAIN TEXT/).count() > 0, 'export warns that the file is unencrypted')
+const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export', exact: true }).click()])
+const path = await dl.path(); const fs = await import('node:fs'); const out = fs.readFileSync(path, 'utf8')
+ok(out.startsWith('name,url,username,password,note') && out.includes('r3dd1t-pw') && out.includes('"pw,with""quotes"'), 'exported CSV is Chrome-compatible and round-trips awkward passwords')
+
+console.log('CHANGE MASTER PASSPHRASE')
+const NEW = 'granite harbor copper lantern maple'
+await page.locator('button[aria-label="Vault options"]').click()
+await page.getByRole('menuitem', { name: /Change master passphrase/ }).click()
+await page.fill('#cp0', 'not the right one at all'); await page.fill('#cp1', NEW); await page.fill('#cp2', NEW)
+await page.getByRole('button', { name: 'Change passphrase' }).click()
+await page.waitForSelector('text=The current passphrase is wrong.')
+ok(true, 'changing requires the correct current passphrase')
+await page.fill('#cp0', MASTER)
+await page.getByRole('button', { name: 'Change passphrase' }).click()
+await page.waitForSelector('text=Master passphrase changed', { timeout: 20000 })
+await page.getByRole('button', { name: 'Lock the vault now' }).click()
+await page.fill('#unlock', MASTER); await page.getByRole('button', { name: 'Unlock' }).click()
+await page.waitForSelector('text=That passphrase is wrong.')
+ok(true, 'the OLD passphrase no longer opens the vault')
+await page.fill('#unlock', NEW); await page.getByRole('button', { name: 'Unlock' }).click()
+await page.waitForSelector('text=Encrypted vault')
+ok(await page.locator('main h2').count() === 3, 'the NEW passphrase opens it, all 4 logins re-encrypted')
+
+console.log('MOBILE')
+const m = await browser.newContext({ viewport: { width: 390, height: 844 } })
+await m.addInitScript((s) => { try { localStorage.setItem('mneme-auth', s); localStorage.setItem('mneme-theme','amethyst') } catch {} }, session)
+const mp = await m.newPage()
+await mp.goto('http://127.0.0.1:4173/passwords'); await mp.fill('#unlock', NEW); await mp.getByRole('button', { name: 'Unlock' }).click(); await mp.waitForSelector('text=Encrypted vault')
+await mp.waitForTimeout(500); await shot(mp, '64-vault-mobile')
+ok(await mp.evaluate(() => document.documentElement.scrollWidth) <= 390, 'no horizontal overflow on a phone')
+await m.close()
+console.log('\nBROWSER ERRORS:', errors.length ? '\n' + [...new Set(errors)].join('\n') : 'none')
+await browser.close()

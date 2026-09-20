@@ -8,7 +8,7 @@ import { useOnline } from '@/hooks/useOnline'
 import { Brand } from './Brand'
 import { CommandPalette } from './CommandPalette'
 import { Dialog } from './Dialog'
-import { IconArchive, IconInbox, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
+import { IconArchive, IconInbox, IconKey, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
 import { SyncManager } from './SyncManager'
 
 function SignOutIcon() {
@@ -58,6 +58,7 @@ export function Shell() {
   const moreItems: [string, string, React.ReactNode, boolean][] = [
     ['/search', 'Search', <IconSearch key="s" size={18} />, true],
     ['/inbox', inbox.data ? `Inbox · ${inbox.data}` : 'Inbox', <IconInbox key="i" size={18} />, true],
+    ['/passwords', 'Passwords', <IconKey key="k" size={18} />, true],
     ['/tags', 'Index', <IconTag key="t" size={18} />, false],
     ['/starred', 'Starred', <IconStar key="st" size={18} />, false],
     ['/archive', 'Archive', <IconArchive key="a" size={18} />, false],
@@ -104,6 +105,7 @@ export function Shell() {
           </button>
           <DockLink to="/tasks" label="Tasks" icon={<IconTasks />} />
           <DockLink to="/search" label="Search" icon={<IconSearch />} hideOnSmall />
+          <DockLink to="/passwords" label="Passwords" icon={<IconKey />} hideOnSmall />
           <button aria-label="More" aria-haspopup="menu" aria-expanded={more} title="More" onClick={() => setMore((v) => !v)}
             className={`flex size-11 items-center justify-center rounded-full ${more ? 'bg-hover text-ink' : 'text-muted hover:bg-hover hover:text-ink'}`}><IconMore /></button>
 

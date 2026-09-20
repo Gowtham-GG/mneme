@@ -379,5 +379,61 @@ begin
            and (select count(*) from mneme.note_counters where user_id = a) = 0, 'deleting the auth user cascades all Mneme data');
 end $$;
 
+-- ============================================================ 5. password vault ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        i1 uuid; i2 uuid; c int;
+begin
+  insert into auth.users (id, email) values (a, 'a-again@test') on conflict do nothing;   -- section 4 deleted user A
+  perform t.login(a);
+  insert into mneme.vault_meta (iterations, salt, check_payload) values (600000, 'c2FsdHNhbHRzYWx0c2FsdA==', 'v1.iv.check');
+  perform t.ok(t.throws($q$ insert into mneme.vault_meta (user_id, iterations, salt, check_payload) values (auth.uid(), 600000, 'c2FsdHNhbHRzYWx0c2FsdA==', 'x') $q$), 'one vault per user');
+  perform t.logout(); perform t.login(b);
+  perform t.ok(t.throws($q$ insert into mneme.vault_meta (iterations, salt, check_payload) values (1000, 'c2FsdHNhbHRzYWx0c2FsdA==', 'x') $q$), 'KDF iteration floor enforced (no downgrade)');
+  perform t.ok(t.throws($q$ insert into mneme.vault_meta (iterations, salt, check_payload) values (600000, 'short', 'x') $q$), 'salt length enforced');
+  perform t.logout(); perform t.login(a);
+
+  insert into mneme.vault_items (payload) values ('v1.aaaa.bbbb') returning id into i1;
+  insert into mneme.vault_items (payload) values ('v1.cccc.dddd') returning id into i2;
+  perform t.ok((select count(*) from mneme.vault_items) = 2, 'A stores encrypted items');
+  perform t.ok(t.throws($q$ insert into mneme.vault_items (payload) values (repeat('x', 40000)) $q$), 'payload size capped');
+  perform t.ok(t.throws($q$ update mneme.vault_items set user_id = 'bbbbbbbb-0000-0000-0000-000000000002' $q$), 'item user_id immutable');
+
+  -- tenant isolation
+  perform t.logout(); perform t.login(b);
+  perform t.ok(t.n('select count(*) from mneme.vault_items') = 0, 'B sees none of A''s vault items');
+  perform t.ok(t.n('select count(*) from mneme.vault_meta') = 0, 'B cannot read A''s KDF parameters');
+  perform t.ok(t.n(format($q$ with u as (update mneme.vault_items set payload = 'v1.evil.evil' where id = %L returning 1) select count(*) from u $q$, i1)) = 0, 'B cannot overwrite A''s ciphertext');
+  perform t.ok(t.n(format($q$ with d as (delete from mneme.vault_items where id = %L returning 1) select count(*) from d $q$, i1)) = 0, 'B cannot delete A''s items');
+  perform t.ok(t.throws(format($q$ insert into mneme.vault_items (user_id, payload) values (%L, 'v1.x.y') $q$, a)), 'B cannot plant items in A''s vault');
+  perform t.ok(t.throws($q$ select mneme.vault_rekey(600000, 'c2FsdHNhbHRzYWx0c2FsdA==', 'v1.k.k', '[]'::jsonb) $q$), 'rekey with no vault of one''s own is refused');
+  perform t.logout(); perform t.anon();
+  perform t.ok(t.throws('select count(*) from mneme.vault_items'), 'anon cannot reach the vault');
+  perform t.logout(); perform t.login(a);
+
+  -- atomic re-key
+  perform t.ok(t.throws(format($q$ select mneme.vault_rekey(700000, 'bmV3c2FsdG5ld3NhbHQxMg==', 'v1.new.check', %L::jsonb) $q$, json_build_array(json_build_object('id', i1, 'payload', 'v1.n1.n1'))::text)), 'rekey refused when an item is missing (partial re-key)');
+  perform t.ok((select iterations from mneme.vault_meta) = 600000 and (select payload from mneme.vault_items where id = i1) = 'v1.aaaa.bbbb', 'a refused rekey changes nothing');
+  perform t.ok(t.throws(format($q$ select mneme.vault_rekey(700000, 'bmV3c2FsdG5ld3NhbHQxMg==', 'v1.new.check', %L::jsonb) $q$, json_build_array(json_build_object('id', i1, 'payload', 'v1.n1.n1'), json_build_object('id', gen_random_uuid(), 'payload', 'v1.n2.n2'))::text)), 'rekey refused when an id is unknown');
+  perform mneme.vault_rekey(700000, 'bmV3c2FsdG5ld3NhbHQxMg==', 'v1.new.check',
+    json_build_array(json_build_object('id', i1, 'payload', 'v1.n1.n1'), json_build_object('id', i2, 'payload', 'v1.n2.n2'))::jsonb);
+  perform t.ok((select iterations from mneme.vault_meta) = 700000 and (select check_payload from mneme.vault_meta) = 'v1.new.check', 'rekey swaps the KDF parameters');
+  perform t.ok((select string_agg(payload, ',' order by payload) from mneme.vault_items) = 'v1.n1.n1,v1.n2.n2', 'rekey swaps every ciphertext in one go');
+
+  -- item cap (bounds abuse on the shared free tier)
+  perform t.logout();
+  insert into mneme.vault_items (user_id, payload) select 'bbbbbbbb-0000-0000-0000-000000000002', 'v1.a.b' from generate_series(1, 5000);
+  perform t.login(b);
+  perform t.ok(t.throws($q$ insert into mneme.vault_items (payload) values ('v1.over.cap') $q$), 'vault capped at 5000 items');
+  perform t.logout(); perform t.login(a);
+
+  -- reset
+  perform mneme.vault_reset();
+  perform t.ok((select count(*) from mneme.vault_items) = 0 and (select count(*) from mneme.vault_meta) = 0, 'vault_reset erases the caller''s vault');
+  perform t.logout();
+  perform t.ok((select count(*) from mneme.vault_items where user_id = 'bbbbbbbb-0000-0000-0000-000000000002') = 5000, 'vault_reset never touches other users');
+end $$;
+
+
 rollback;
 \echo ALL TESTS PASSED

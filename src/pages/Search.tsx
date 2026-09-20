@@ -44,7 +44,7 @@ export function Search() {
       <div className="page-top mx-auto max-w-3xl px-4 pb-32 lg:px-6 lg:pb-8">
         <h1 className="sr-only">Search</h1>
         <div className="relative">
-          <IconSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+          <IconSearch className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-faint" />
           <input
             autoFocus type="search" value={text} onChange={(e) => { setText(e.target.value); setPages(1) }}
             onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) saveRecent(text.trim()) }}

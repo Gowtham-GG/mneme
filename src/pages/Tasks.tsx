@@ -68,7 +68,7 @@ function Section({ title, bucket, tz, defaultOpen = true, tone, onTick, onDue, o
   const [open, setOpen] = useState(defaultOpen)
   const q = useQuery({ queryKey: ['tasks', bucket], queryFn: () => listTasks(bucket), enabled: open })
   return (
-    <Card className="mb-4 rise" title={<span className={tone}>{title}{q.data ? <span className="ml-2 text-faint normal-case tracking-normal">{q.data.length}</span> : null}</span>}
+    <Card className="rise relative mb-4 focus-within:z-20" title={<span className={tone}>{title}{q.data ? <span className="ml-2 text-faint normal-case tracking-normal">{q.data.length}</span> : null}</span>}
       aside={<button className="hover:text-ink" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</button>}>
       {open && (
         q.isLoading ? <p className="px-2 text-sm text-faint">Loading…</p>

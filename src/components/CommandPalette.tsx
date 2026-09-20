@@ -30,6 +30,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     { key: 'tasks', label: 'Tasks', run: go('/tasks') },
     { key: 'inbox', label: 'Inbox — captures to process', run: go('/inbox') },
     { key: 'search', label: 'Search', hint: '/', run: go('/search') },
+    { key: 'passwords', label: 'Passwords (encrypted vault)', run: go('/passwords') },
     { key: 'index', label: 'Index (tags)', run: go('/tags') },
     { key: 'starred', label: 'Starred', run: go('/starred') },
     { key: 'archive', label: 'Archive', run: go('/archive') },

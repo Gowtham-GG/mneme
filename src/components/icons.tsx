@@ -34,3 +34,12 @@ export const IconSun = mk(<><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 
 
 /** Brand mark: an "M" drawn as a single continuous stroke. */
 export const IconMark = mk(<path d="M5 18V7l7 8 7-8v11" strokeWidth={2.4} />)
+
+export const IconKey = mk(<><circle cx="8" cy="15" r="4" /><path d="m11 12 8.5-8.5M16 6.5l2.5 2.5M14 8.5l2 2" /></>)
+export const IconCopy = mk(<><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" /><path d="M15.5 8.5V6.5A2.5 2.5 0 0 0 13 4H6.5A2.5 2.5 0 0 0 4 6.5V13a2.5 2.5 0 0 0 2.5 2.5h2" /></>)
+export const IconEye = mk(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.75" /></>)
+export const IconEyeOff = mk(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.75" /><path d="m4 4 16 16" /></>)
+export const IconLock = mk(<><rect x="5" y="10.5" width="14" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></>)
+export const IconExternal = mk(<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />)
+export const IconEdit = mk(<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3" />)
+export const IconWand = mk(<path d="M5 19 16 8M14 6l1-2 1 2 2 1-2 1-1 2-1-2-2-1zM18.5 13l.6-1.3.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6z" />)

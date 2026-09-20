@@ -173,6 +173,7 @@ Files in `supabase/migrations/`, in order:
 20260920100400_mneme_05_trigram.sql    pg_trgm + substring indexes
 20260920100500_mneme_06_lists.sql      list/recent RPCs
 20260921100000_mneme_07_themes.sql     settings.theme accepts any theme id (run this to enable the new themes)
+20260921110000_mneme_08_vault.sql      Passwords: end-to-end-encrypted vault tables + atomic re-key/reset RPCs
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.
@@ -327,3 +328,35 @@ check that makes a network call **only if unsent drafts exist**.
 Files, images, PDFs, audio, video, AI summaries/auto-tagging, graph visualisation, collaboration/sharing, calendars,
 templates, realtime, Edge Functions, cron, full offline replica. Candidates for later: tag rename/merge (needs a safe
 server-side text rewrite), daily/weekly review, related-note suggestions, an Expo client.
+
+---
+
+## 14. Passwords (encrypted vault)
+
+A separate section (**Passwords**, key icon in the dock) for logins: **website · username/email · password**, with one-click
+**copy** on the username and the password, and any number of logins per website (they are grouped under the site).
+
+**Security model — zero-knowledge, end-to-end encrypted**
+
+* You choose a **master passphrase**. It is never stored or sent. From it the browser derives a 256-bit key with
+  **PBKDF2-SHA256 (600 000 iterations, random per-user salt)**.
+* Each login (website, username, password, notes) is encrypted **in the browser** with **AES-256-GCM** (fresh random IV per
+  encryption) *before* it is saved. The database — and your Supabase dashboard — only ever hold opaque `v1.<iv>.<ciphertext>`.
+  The test-suite asserts that no site, username, password, note or passphrase ever appears in the stored data.
+* Every ciphertext is bound (as GCM "associated data") to its owner and row id, so a malicious database can't swap or
+  replay records between rows/users; any tampering is detected on decrypt.
+* The key is a **non-extractable** WebCrypto key held **only in memory**. It is discarded on Lock, on the idle timeout
+  (default 5 min, configurable), on sign-out and on page reload. Nothing secret is written to localStorage/IndexedDB.
+* Copied passwords are wiped from the clipboard after 30 s; passwords are masked and only shown on request (auto-hide 15 s).
+* RLS isolates vaults per user like everything else; the vault is capped at 5 000 items to protect the shared free tier.
+* Change master passphrase = every item re-encrypted client-side and swapped in **one atomic transaction** (`vault_rekey`);
+  if another device changed the vault meanwhile the change is refused and nothing is modified.
+
+**Things to know**
+
+* **If you forget the master passphrase, the passwords cannot be recovered — by anyone.** "Erase the vault" lets you start over.
+* Import from Chrome / Edge / Bitwarden / 1Password / LastPass CSV; export a Chrome-compatible CSV (**plain text**, with a warning).
+* This protects against database leaks and anyone with backend access. It cannot protect against malware/keyloggers on your
+  device or a compromised browser. It uses only standard WebCrypto primitives and has **not** been independently audited —
+  for your most critical accounts consider a dedicated, audited manager as well.
+* The strength meter is a heuristic estimate, not a guarantee.

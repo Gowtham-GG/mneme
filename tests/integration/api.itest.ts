@@ -21,6 +21,8 @@ import * as tags from '@/api/tags'
 import * as tasks from '@/api/tasks'
 import * as settings from '@/api/settings'
 import * as revisions from '@/api/revisions'
+import * as vault from '@/api/vault'
+import { deriveVaultKey, makeCheck, newSalt, openItem, sealItem, verifyCheck } from '@/lib/vaultCrypto'
 import { collectExport } from '@/api/export'
 import { pushDraft } from '@/lib/sync'
 import type { Draft } from '@/lib/drafts'
@@ -231,6 +233,104 @@ describe('version history', () => {
     as(B)
     expect(await revisions.listRevisions(n.id)).toEqual([])
     await expect(revisions.snapshotCurrent(n.id, null, 'planted')).rejects.toBeTruthy() // composite FK: cannot write into A's history
+  })
+})
+
+describe('password vault (end-to-end encrypted)', () => {
+  const ITER = 100_000 // the database floor; production uses 600 000
+  const PW = 'Sup3r-s3cret-p@ssword!'
+  const setup = async (user: string, pass: string) => {
+    const salt = newSalt()
+    const key = await deriveVaultKey(pass, salt, ITER)
+    await vault.createVaultMeta({ iterations: ITER, salt, check_payload: await makeCheck(key, user) })
+    return { key, salt }
+  }
+
+  it('stores only ciphertext: the password never reaches the database in the clear', async () => {
+    as(A)
+    const { key } = await setup(A, 'correct horse battery staple')
+    const id = randomUUID()
+    await vault.upsertVaultRow(id, await sealItem(key, A, id, { site: 'github.com', username: 'me@example.com', password: PW, notes: 'recovery: 7788' }))
+    // what an attacker with full database access (or the Supabase dashboard) would see:
+    const raw = psql(`select payload from mneme.vault_items where id='${id}'`) + psql(`select check_payload || salt from mneme.vault_meta where user_id='${A}'`)
+    for (const needle of [PW, 'github', 'example.com', '7788', 'correct horse']) expect(raw).not.toContain(needle)
+    // …while the owner, with the passphrase, gets everything back
+    const rows = await vault.fetchVaultRows()
+    const meta = (await vault.fetchVaultMeta())!
+    const k2 = await deriveVaultKey('correct horse battery staple', meta.salt, meta.iterations)
+    expect(await verifyCheck(k2, A, meta.check_payload)).toBe(true)
+    expect(await openItem(k2, A, id, rows[0].payload)).toMatchObject({ site: 'github.com', username: 'me@example.com', password: PW, notes: 'recovery: 7788' })
+    expect(await verifyCheck(await deriveVaultKey('wrong passphrase!!', meta.salt, meta.iterations), A, meta.check_payload)).toBe(false)
+  })
+
+  it('several logins for one site, edit (upsert) and delete', async () => {
+    as(A)
+    const meta = (await vault.fetchVaultMeta())!
+    const key = await deriveVaultKey('correct horse battery staple', meta.salt, meta.iterations)
+    const ids = [randomUUID(), randomUUID()]
+    await vault.upsertVaultRow(ids[0], await sealItem(key, A, ids[0], { site: 'netflix.com', username: 'dad', password: 'a1', notes: '' }))
+    await vault.upsertVaultRow(ids[1], await sealItem(key, A, ids[1], { site: 'netflix.com', username: 'kids', password: 'b2', notes: '' }))
+    await vault.upsertVaultRow(ids[1], await sealItem(key, A, ids[1], { site: 'netflix.com', username: 'kids', password: 'b2-changed', notes: 'edited' })) // same id = update
+    const opened = await Promise.all((await vault.fetchVaultRows()).filter((r) => ids.includes(r.id)).map((r) => openItem(key, A, r.id, r.payload)))
+    expect(opened.map((o) => `${o.username}:${o.password}`).sort()).toEqual(['dad:a1', 'kids:b2-changed'])
+    await vault.deleteVaultRow(ids[0])
+    expect((await vault.fetchVaultRows()).some((r) => r.id === ids[0])).toBe(false)
+  })
+
+  it('another user cannot read, overwrite, delete or even see A’s vault; and a ciphertext moved to another row will not decrypt', async () => {
+    as(A)
+    const meta = (await vault.fetchVaultMeta())!
+    const key = await deriveVaultKey('correct horse battery staple', meta.salt, meta.iterations)
+    const id = randomUUID()
+    await vault.upsertVaultRow(id, await sealItem(key, A, id, { site: 'bank.example', username: 'a', password: 'top-secret', notes: '' }))
+    const payload = (await vault.fetchVaultRows()).find((r) => r.id === id)!.payload
+
+    as(B)
+    expect(await vault.fetchVaultMeta()).toBeNull()
+    expect(await vault.fetchVaultRows()).toEqual([])
+    await vault.deleteVaultRow(id) // affects 0 rows
+    await expect(vault.upsertVaultRow(id, 'v1.evil.evil')).rejects.toBeTruthy() // cannot hijack A's row id
+    as(A)
+    expect((await vault.fetchVaultRows()).find((r) => r.id === id)!.payload).toBe(payload)
+
+    // a malicious database moving A's ciphertext to a different row id is detected
+    await expect(openItem(key, A, randomUUID(), payload)).rejects.toBeTruthy()
+  })
+
+  it('changing the master passphrase re-encrypts everything atomically; a stale attempt is refused', async () => {
+    as(A)
+    const meta = (await vault.fetchVaultMeta())!
+    const oldKey = await deriveVaultKey('correct horse battery staple', meta.salt, meta.iterations)
+    const rows = await vault.fetchVaultRows()
+    const salt = newSalt()
+    const newKey = await deriveVaultKey('a brand new passphrase!', salt, ITER)
+    const items = await Promise.all(rows.map(async (r) => ({ id: r.id, payload: await sealItem(newKey, A, r.id, await openItem(oldKey, A, r.id, r.payload)) })))
+
+    // a partial re-key (one item missing) is refused and changes nothing
+    await expect(vault.rekeyVault(ITER, salt, await makeCheck(newKey, A), items.slice(1))).rejects.toMatchObject({ code: '40001' })
+    expect(await verifyCheck(oldKey, A, (await vault.fetchVaultMeta())!.check_payload)).toBe(true)
+
+    await vault.rekeyVault(ITER, salt, await makeCheck(newKey, A), items)
+    const after = (await vault.fetchVaultMeta())!
+    expect(await verifyCheck(newKey, A, after.check_payload)).toBe(true)
+    expect(await verifyCheck(oldKey, A, after.check_payload)).toBe(false)
+    for (const r of await vault.fetchVaultRows()) {
+      await expect(openItem(oldKey, A, r.id, r.payload)).rejects.toBeTruthy()
+      expect((await openItem(newKey, A, r.id, r.payload)).site).toBeTruthy()
+    }
+  })
+
+  it('reset erases the caller’s vault only', async () => {
+    as(B)
+    const { key } = await setup(B, 'bee bee bee bee bee')
+    const idB = randomUUID()
+    await vault.upsertVaultRow(idB, await sealItem(key, B, idB, { site: 'b.example', username: 'b', password: 'b', notes: '' }))
+    as(A)
+    await vault.resetVaultOnServer()
+    expect(await vault.fetchVaultMeta()).toBeNull()
+    expect(await vault.fetchVaultRows()).toEqual([])
+    as(B)
+    expect((await vault.fetchVaultRows()).length).toBe(1)
   })
 })
 

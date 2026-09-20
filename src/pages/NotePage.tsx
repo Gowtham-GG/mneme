@@ -130,7 +130,7 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* header */}
-        <header className="header-safe flex items-center gap-1 border-b border-line bg-[var(--sticky)] px-2 backdrop-blur-md lg:px-4">
+        <header className="header-safe relative z-20 flex items-center gap-1 border-b border-line bg-[var(--sticky)] px-2 backdrop-blur-md lg:px-4">
           <button aria-label="Back" className="rounded-xl p-2 hover:bg-hover lg:hidden" onClick={back}><IconBack /></button>
           <div className="min-w-0 flex-1 pl-1"><SaveStatus status={ed.status} error={ed.errorMsg} onRetry={ed.retryNow} /></div>
           {persisted && (
