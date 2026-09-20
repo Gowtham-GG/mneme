@@ -1,0 +1,13 @@
+# Minimal Supabase CLI config for Mneme (linking / pushing migrations, optional local stack).
+# This project SHARES a Supabase project with Argus. See README "Argus coexistence".
+project_id = "mneme"
+
+[api]
+enabled = true
+# "mneme" must also be added to Dashboard -> Settings -> API -> Exposed schemas on the hosted project.
+schemas = ["public", "graphql_public", "mneme"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 17

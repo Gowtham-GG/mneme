@@ -1,0 +1,36 @@
+import type { SVGProps } from 'react'
+
+// Tiny inline icon set (24px grid, 1.75 stroke): no icon-library weight in the bundle.
+type P = SVGProps<SVGSVGElement> & { size?: number }
+const base = (size = 20): SVGProps<SVGSVGElement> => ({
+  width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+})
+const mk = (d: React.ReactNode) => ({ size, ...rest }: P) => <svg {...base(size)} {...rest}>{d}</svg>
+
+export const IconPlus = mk(<path d="M12 5v14M5 12h14" />)
+export const IconSearch = mk(<><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4-4" /></>)
+export const IconToday = mk(<><rect x="4" y="5" width="16" height="15" rx="2.5" /><path d="M8 3v4M16 3v4M4 10h16" /></>)
+export const IconNotes = mk(<><path d="M6 4h9l3 3v13H6z" /><path d="M9 11h6M9 15h6" /></>)
+export const IconTasks = mk(<><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8.5 12.5 2.5 2.5 4.5-5" /></>)
+export const IconTag = mk(<path d="M9 4 7.5 20M16.5 4 15 20M4 9h16M3.5 15h16" />)
+export const IconStar = mk(<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z" />)
+export const IconStarFill = ({ size, ...rest }: P) => <svg {...base(size)} fill="currentColor" {...rest}><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z" /></svg>
+export const IconArchive = mk(<><rect x="3.5" y="4.5" width="17" height="4.5" rx="1" /><path d="M5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" /></>)
+export const IconTrash = mk(<><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6" /></>)
+export const IconSettings = mk(<><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8" /></>)
+export const IconInbox = mk(<><path d="M4 13.5 6.5 5h11L20 13.5V19H4z" /><path d="M4 13.5h4.5l1 2.5h5l1-2.5H20" /></>)
+export const IconMore = mk(<><circle cx="5.5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18.5" cy="12" r="1.2" fill="currentColor" /></>)
+export const IconBack = mk(<path d="M15 5 8 12l7 7" />)
+export const IconLink = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>)
+export const IconX = mk(<path d="M6 6l12 12M18 6 6 18" />)
+export const IconCheck = mk(<path d="m5 12.5 4.5 4.5L19 7.5" />)
+export const IconCloudOff = mk(<><path d="M9 6.5A6 6 0 0 1 18 11a4 4 0 0 1 3 3.8M7 18a4.5 4.5 0 0 1-.5-9" /><path d="m3 3 18 18" /></>)
+export const IconCommand = mk(<path d="M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9m0 0h6m-6 0v6m6-6V6.5A2.5 2.5 0 1 1 17.5 9H15m0 0v6m0 0h2.5a2.5 2.5 0 1 1-2.5 2.5V15m0 0H9m0 0v2.5A2.5 2.5 0 1 1 6.5 15H9" />)
+export const IconDownload = mk(<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19.5h14" />)
+export const IconCalendar = IconToday
+export const IconChevron = mk(<path d="m9 5 7 7-7 7" />)
+export const IconSun = mk(<><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>)
+
+/** Brand mark: an "M" drawn as a single continuous stroke. */
+export const IconMark = mk(<path d="M5 18V7l7 8 7-8v11" strokeWidth={2.4} />)

@@ -1,0 +1,262 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Mneme design system — "executive glass".
+   Every theme is a handful of HUE knobs; all tokens are derived from them, so a new
+   theme is ~6 lines (see the blocks below + src/lib/themes.ts). The app always sets
+   <html data-theme="<id>"> (theme-init.js before first paint, SettingsContext after).
+
+   Knobs:  --h  base hue of the background / neutrals
+           --h2 second hue of the ambient glow
+           --ha accent hue           --asat / --al accent saturation / lightness
+           --sat neutral saturation   --on  text colour on accent-filled controls
+   Surfaces are translucent (see .glass): the ambient gradient and whatever scrolls
+   beneath show through. Colour keeps its meaning: task = teal, important = amber,
+   question = blue, error = red; the accent marks actions.
+   --------------------------------------------------------------------------- */
+
+/* ---- themes: knobs only ------------------------------------------------- */
+:root, :root[data-theme='amethyst'] { --h: 268; --h2: 302; --ha: 271; --sat: 34%; --asat: 92%; --al: 62%; --on: #fff; }
+:root[data-theme='sapphire']        { --h: 222; --h2: 198; --ha: 214; --sat: 42%; --asat: 94%; --al: 60%; --on: #fff; }
+:root[data-theme='jade']            { --h: 168; --h2: 192; --ha: 160; --sat: 38%; --asat: 80%; --al: 50%; --on: #04140e; }
+:root[data-theme='ember']           { --h: 22;  --h2: 44;  --ha: 30;  --sat: 34%; --asat: 92%; --al: 56%; --on: #1c0d02; }
+:root[data-theme='crimson']         { --h: 346; --h2: 18;  --ha: 350; --sat: 36%; --asat: 88%; --al: 60%; --on: #fff; }
+:root[data-theme='graphite']        { --h: 226; --h2: 210; --ha: 214; --sat: 10%; --asat: 22%; --al: 76%; --on: #0b0e14; }
+:root[data-theme='slate']           { --h: 228; --h2: 200; --ha: 236; --sat: 40%; --asat: 68%; --al: 50%; --on: #fff; }
+:root[data-theme='lilac']           { --h: 272; --h2: 318; --ha: 268; --sat: 46%; --asat: 70%; --al: 52%; --on: #fff; }
+:root[data-theme='sand']            { --h: 34;  --h2: 10;  --ha: 22;  --sat: 46%; --asat: 82%; --al: 44%; --on: #fff; }
+
+/* ---- dark family -------------------------------------------------------- */
+:root, :root[data-theme='amethyst'], :root[data-theme='sapphire'], :root[data-theme='jade'],
+:root[data-theme='ember'], :root[data-theme='crimson'], :root[data-theme='graphite'] {
+  color-scheme: dark;
+  --bg: hsl(var(--h) var(--sat) 7%);
+  --ambient:
+    radial-gradient(1000px 720px at 6% -8%, hsl(var(--h) 85% 52% / 0.32), transparent 62%),
+    radial-gradient(900px 640px at 98% 2%, hsl(var(--h2) 80% 55% / 0.17), transparent 58%),
+    radial-gradient(1000px 760px at 55% 118%, hsl(var(--ha) 85% 55% / 0.2), transparent 62%),
+    linear-gradient(180deg, hsl(var(--h) var(--sat) 9%) 0%, hsl(var(--h) var(--sat) 6%) 100%);
+  /* translucent on purpose: the backdrop and scrolling content read through */
+  --glass: hsl(var(--h) 30% 66% / 0.075);
+  --glass-strong: hsl(var(--h) 34% 13% / 0.66);
+  --glass-clear: hsl(var(--h) 30% 10% / 0.66);
+  --glass-border: hsl(var(--ha) 60% 68% / 0.2);
+  --glass-hi: hsl(0 0% 100% / 0.06);
+  --glass-shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 30px 70px -28px rgba(0, 0, 0, 0.8);
+  --sticky: hsl(var(--h) 36% 8% / 0.6);
+  --panel: hsl(var(--h) 30% 70% / 0.06);
+  --raised: hsl(var(--h) 30% 70% / 0.05);
+  --hover: hsl(var(--h) 40% 80% / 0.08);
+  --ink: hsl(var(--h) 60% 97%);
+  --muted: hsl(var(--h) 22% 74%);
+  --faint: hsl(var(--h) 14% 57%);
+  --line: hsl(var(--ha) 50% 66% / 0.18);
+  --letter: hsl(var(--h) 100% 97%);
+  --accent: hsl(var(--ha) var(--asat) var(--al));
+  --accent-grad: linear-gradient(135deg, hsl(var(--ha) var(--asat) var(--al)), hsl(calc(var(--ha) + 22) var(--asat) calc(var(--al) + 7%)));
+  --accent-soft: hsl(var(--ha) 90% 72% / 0.15);
+  --accent-glow: hsl(var(--ha) 90% 60% / 0.55);
+  --on-accent: var(--on);
+  --task: #5eead4; --task-soft: rgba(94, 234, 212, 0.12);
+  --important: #fbbf24; --important-soft: rgba(251, 191, 36, 0.14);
+  --question: #8cb0ff; --question-soft: rgba(140, 176, 255, 0.15);
+  --danger: #ff7b8f; --danger-soft: rgba(255, 123, 143, 0.14);
+  --mark: rgba(250, 204, 21, 0.28);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px -6px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 22px 50px -18px rgba(0, 0, 0, 0.7);
+  --shadow-2xl: 0 40px 90px -30px rgba(0, 0, 0, 0.8);
+}
+
+/* ---- light family ------------------------------------------------------- */
+:root[data-theme='slate'], :root[data-theme='lilac'], :root[data-theme='sand'] {
+  color-scheme: light;
+  --bg: hsl(var(--h) var(--sat) 96%);
+  --ambient:
+    radial-gradient(1100px 720px at 8% -8%, hsl(var(--h) 90% 66% / 0.26), transparent 62%),
+    radial-gradient(900px 620px at 96% 2%, hsl(var(--h2) 90% 66% / 0.22), transparent 58%),
+    radial-gradient(1000px 760px at 62% 112%, hsl(var(--ha) 85% 66% / 0.16), transparent 62%),
+    linear-gradient(180deg, hsl(var(--h) 55% 97.5%) 0%, hsl(var(--h) 38% 92.5%) 100%);
+  --glass: rgba(255, 255, 255, 0.5);
+  --glass-strong: rgba(255, 255, 255, 0.74);
+  --glass-clear: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-hi: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 1px 0 rgba(15, 23, 42, 0.03), 0 24px 60px -24px hsl(var(--h) 60% 35% / 0.34);
+  --sticky: hsl(var(--h) 55% 97% / 0.7);
+  --panel: hsl(var(--h) 40% 30% / 0.05);
+  --raised: rgba(255, 255, 255, 0.55);
+  --hover: hsl(var(--h) 40% 30% / 0.06);
+  --ink: hsl(var(--h) 45% 9%);
+  --muted: hsl(var(--h) 16% 36%);
+  --faint: hsl(var(--h) 10% 55%);
+  --line: hsl(var(--h) 30% 25% / 0.11);
+  --letter: hsl(var(--h) 70% 90%);
+  --accent: hsl(var(--ha) var(--asat) var(--al));
+  --accent-grad: linear-gradient(135deg, hsl(var(--ha) var(--asat) var(--al)), hsl(calc(var(--ha) + 24) var(--asat) calc(var(--al) + 9%)));
+  --accent-soft: hsl(var(--ha) 80% 50% / 0.11);
+  --accent-glow: hsl(var(--ha) 80% 50% / 0.5);
+  --on-accent: var(--on);
+  --task: #0d9488; --task-soft: rgba(13, 148, 136, 0.11);
+  --important: #c2570c; --important-soft: rgba(217, 119, 6, 0.13);
+  --question: #2563eb; --question-soft: rgba(37, 99, 235, 0.1);
+  --danger: #c81e3a; --danger-soft: rgba(225, 29, 72, 0.1);
+  --mark: rgba(250, 204, 21, 0.42);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 14px -6px rgba(35, 45, 110, 0.14);
+  --shadow-lg: 0 10px 30px -10px rgba(35, 45, 110, 0.28);
+  --shadow-xl: 0 22px 50px -18px rgba(35, 45, 110, 0.36);
+  --shadow-2xl: 0 40px 90px -30px rgba(20, 28, 80, 0.5);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-task: var(--task);
+  --color-task-soft: var(--task-soft);
+  --color-important: var(--important);
+  --color-important-soft: var(--important-soft);
+  --color-question: var(--question);
+  --color-question-soft: var(--question-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'DM Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 1.875rem;
+  --shadow-sm: var(--shadow-sm);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+/* Ambient backdrop on its own fixed layer: panels blur over it and it never scrolls. */
+body::before { content: ''; position: fixed; inset: 0; z-index: -1; background: var(--ambient); pointer-events: none; }
+
+@layer base {
+  h1, h2, h3 { letter-spacing: -0.02em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+input:focus, select:focus { box-shadow: 0 0 0 3px var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 65%, transparent) !important; }
+button, [role='button'], a, summary { cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.5; }
+button, a, input, select, textarea { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 200ms ease, transform 160ms ease, opacity 160ms ease; }
+button:active:not(:disabled) { transform: scale(0.985); }
+input, select, textarea { color: var(--ink); }
+input::placeholder { color: var(--faint); }
+select option { background: var(--bg); color: var(--ink); }
+
+::selection { background: var(--accent-soft); }
+mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2px; }
+
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--faint) 45%, transparent) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--faint) 40%, transparent); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+
+@layer components {
+  /* The signature surface: translucent, lightly blurred, tint-bordered, lit from above. */
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
+  }
+  .glass-strong {
+    background: var(--glass-strong);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
+  }
+  /* See-through form card (login): only a hint of blur so what is behind stays recognisable. */
+  .glass-clear {
+    background: var(--glass-clear);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass, .glass-strong, .glass-clear { background: var(--glass-strong); }
+  }
+  /* Every filled accent control gets the gradient + a soft coloured glow. */
+  .bg-accent {
+    background-image: var(--accent-grad);
+    box-shadow: 0 8px 22px -8px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  .bg-accent:hover:not(:disabled) { filter: brightness(1.08) saturate(1.05); }
+  .bg-accent:disabled { box-shadow: none; }
+  /* Transparent, tint-bordered field (reference login). */
+  .field {
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 0.625rem;
+    padding: 0.7rem 0.9rem;
+    width: 100%;
+    outline: none;
+  }
+  /* Small, letter-spaced section label used across cards (like "BALANCE HEALTH"). */
+  .label-caps { font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint); }
+}
+
+.note-body { font-size: 16.5px; line-height: 1.75; }
+.note-body a { color: var(--accent); text-underline-offset: 3px; }
+.editor-area { font-size: 16.5px; line-height: 1.75; font-family: var(--font-sans); background: transparent; color: var(--ink); resize: none; outline: none; border: 0; width: 100%; }
+.editor-area::placeholder, .title-input::placeholder { color: var(--faint); }
+.title-input { font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -0.03em; background: transparent; color: var(--ink); border: 0; outline: none; width: 100%; box-shadow: none !important; }
+
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+@utility page-top {
+  padding-top: calc(env(safe-area-inset-top) + 1.25rem);
+  @media (min-width: 1024px) { padding-top: 1.75rem; }
+}
+@utility header-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); padding-bottom: 0.5rem; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.pop { animation: rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.rise { animation: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.fade { animation: fade 300ms ease both; }
+dialog[open] { animation: rise 240ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+dialog::backdrop { background: rgba(6, 4, 14, 0.42); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); animation: fade 200ms ease; }
+
+.skeleton { position: relative; overflow: hidden; background: var(--panel); border-radius: 12px; }
+.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 7%, transparent), transparent); animation: shimmer 1.4s infinite; }
+
+.skip-link { position: absolute; left: -999px; top: 8px; z-index: 100; background: var(--accent-grad); color: var(--on-accent); padding: 8px 12px; border-radius: 10px; }
+.skip-link:focus { left: 8px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-delay: 0ms !important; transition-duration: 0.001ms !important; }
+}
