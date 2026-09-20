@@ -1,20 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
+import { readSupabaseEnv } from './env'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+const env = readSupabaseEnv(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
 
-export const supabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
+/** null when configured; otherwise a human-readable reason (shown on the login screen instead of a blank page). */
+export const supabaseConfigError = env.error
+export const supabaseConfigured = env.error === null
 
-if (!supabaseConfigured) {
-  console.error(
-    'Missing Supabase env vars. Copy .env.example to .env.local and set ' +
-      'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
-  )
-}
+if (env.error) console.error(`[Mneme] ${env.error}`)
 
-// Same project (and same auth users) as Argus, but every data call goes to the
-// dedicated `mneme` schema. The service-role key is never used in the browser.
-export const supabase = createClient(supabaseUrl ?? 'http://localhost', supabaseAnonKey ?? 'missing', {
+// Same project (and same auth users) as Argus, but every data call goes to the dedicated `mneme` schema.
+// The service-role key is never used in the browser. A misconfigured build still gets a (dummy) client so
+// the app can render the explanation.
+export const supabase = createClient(env.url || 'http://localhost', env.key || 'missing', {
   db: { schema: 'mneme' },
   auth: {
     persistSession: true,

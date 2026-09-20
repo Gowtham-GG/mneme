@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { resetPasswordForEmail, signIn, signUp } from '@/api/auth'
 import { BigM } from '@/components/BigM'
 import { useAuth } from '@/hooks/useAuth'
-import { supabaseConfigured } from '@/lib/supabase'
+import { supabaseConfigError } from '@/lib/supabase'
 
 function Eye({ off }: { off: boolean }) {
   return (
@@ -45,7 +45,7 @@ export function Login() {
       <BigM className="pointer-events-none absolute left-1/2 top-[44%] h-[min(50vh,400px)] -translate-x-[37.5%] -translate-y-1/2 select-none lg:top-1/2 lg:h-[min(74vh,660px)] lg:-translate-x-[54%]" />
 
       <div className="rise relative z-10 w-full max-w-[380px] lg:translate-x-6 lg:translate-y-2">
-        {!supabaseConfigured && <p role="alert" className="mb-3 rounded-lg bg-danger-soft p-3 text-sm text-danger">Supabase isn’t configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.</p>}
+        {supabaseConfigError && <p role="alert" className="glass-strong mb-3 rounded-xl p-3.5 text-sm text-danger"><b className="block">Setup problem</b>{supabaseConfigError}</p>}
         <form onSubmit={submit} className="glass-clear rounded-3xl p-8">
           <h1 className="text-[28px] font-bold leading-none tracking-tight">Mneme<span className="text-accent">.</span></h1>
           <p className="mb-7 mt-2 text-sm text-ink/80">Your second memory. Capture now, find anything.</p>
