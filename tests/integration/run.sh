@@ -21,7 +21,10 @@ initdb -D "$WORK/pgdata" -U postgres -E UTF8 --locale=C.UTF-8 --auth=trust >/dev
 pg_ctl -D "$WORK/pgdata" -o "-p $PGPORT -k $WORK -c listen_addresses=127.0.0.1 -c fsync=off" -l "$WORK/pg.log" -w start >/dev/null
 PSQL="psql -h 127.0.0.1 -p $PGPORT -U postgres -d postgres -v ON_ERROR_STOP=1 -q"
 $PSQL -f supabase/tests/supabase_shim.sql
-for f in $(ls supabase/migrations/*.sql | grep -v trigram); do $PSQL -f "$f" 2>&1 | grep -v NOTICE || true; done
+# trigram (05) and related_notes (11, which calls extensions.similarity) need
+# pg_trgm, not installed locally; reminders_cron (15) needs pg_cron and is a
+# manual one-time production step anyway (see its own header comment).
+for f in $(ls supabase/migrations/*.sql | grep -v -e trigram -e related_notes -e reminders_cron); do $PSQL -f "$f" 2>&1 | grep -v NOTICE || true; done
 
 JWT_SECRET="super-secret-jwt-token-with-at-least-32-characters-long"
 $CT run -d --rm --name mneme-int-rest --network host \

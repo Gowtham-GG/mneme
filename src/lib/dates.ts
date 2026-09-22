@@ -115,3 +115,32 @@ export function formatFullDate(key: string): string {
   const [y, m, d] = key.split('-').map(Number)
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(Date.UTC(y, m - 1, d)))
 }
+
+export type DueStatus = 'overdue' | 'due-today' | 'upcoming' | 'none'
+
+/**
+ * Where a task's due date (+ optional due time) stands relative to now, in
+ * the given timezone. A date-only task is "overdue" once its day has fully
+ * passed; a timed task is "overdue" as soon as that time passes today.
+ */
+export function taskDueStatus(
+  dueDate: string | null, dueTime: string | null, tz: string, now: Date = new Date(),
+): DueStatus {
+  if (!dueDate) return 'none'
+  const today = todayKey(tz, now)
+  if (dueDate > today) return 'upcoming'
+  if (dueDate < today) return 'overdue'
+  if (!dueTime) return 'due-today'
+  const p = parts(now, tz)
+  const nowMinutes = p.h * 60 + p.mi
+  const [h, mi] = dueTime.split(':').map(Number)
+  return nowMinutes >= h * 60 + mi ? 'overdue' : 'due-today'
+}
+
+/** "9:00am" / "2:30pm" from a "HH:MM[:SS]" time-of-day string. */
+export function formatTimeOfDay(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const period = h < 12 ? 'am' : 'pm'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2, '0')}${period}`
+}

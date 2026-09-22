@@ -18,7 +18,10 @@ export async function addStandaloneTask(title: string, due_date: string | null =
   if (error) throw toError(error)
 }
 
-export async function updateTask(id: string, patch: { due_date?: string | null; priority?: TaskPriority | null; title?: string }): Promise<void> {
+export async function updateTask(
+  id: string,
+  patch: { due_date?: string | null; due_time?: string | null; priority?: TaskPriority | null; title?: string },
+): Promise<void> {
   const { error } = await supabase.from('tasks').update(patch).eq('id', id)
   if (error) throw toError(error)
 }
@@ -26,4 +29,11 @@ export async function updateTask(id: string, patch: { due_date?: string | null; 
 export async function deleteStandaloneTask(id: string): Promise<void> {
   const { error } = await supabase.from('tasks').delete().eq('id', id).eq('source', 'standalone')
   if (error) throw toError(error)
+}
+
+/** Open, due-today-or-earlier task count — powers the Tasks dock badge. */
+export async function dueTaskCount(): Promise<number> {
+  const { data, error } = await supabase.rpc('due_task_count')
+  if (error) throw toError(error)
+  return Number(data ?? 0)
 }

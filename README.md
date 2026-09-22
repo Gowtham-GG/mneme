@@ -14,8 +14,14 @@ though it is designed for personal use.
 - **No folders.** One chronological stream. Structure comes from `#tags`, `[[links]]`, search and a dynamic index.
 - **Nothing is mandatory.** No title, category, tag, project or template. Open → type → done.
 - **Text only.** No uploads, no Storage, no images/PDF/audio. URLs are just text.
-- **No custom backend, no Edge Functions, no cron, no realtime, no paid services.** Everything is Postgres + RLS.
+- **Almost no backend.** Everything is Postgres + RLS, with exactly one opt-in exception: a single Edge Function on a
+  10-minute `pg_cron` tick, only for due-task reminder emails (§15, set up in §5.6) — off by default, nothing else in the app uses it.
 - **Your data stays yours.** Export everything as Markdown / JSON / CSV any time.
+
+**Since first launch, also added:** tag rename & merge (Index/tag page), directly editable task due date/time/priority
+(Tasks view and a note's Tasks panel), related-note suggestions (tag overlap + title similarity), multi-select bulk
+actions on the Notes/Archive/Trash/Search lists (star, tag, archive, trash, restore, delete forever), named/pinned
+saved searches, an overdue/due-today count on the Tasks dock icon, and optional due-date reminder emails (§15).
 
 ---
 
@@ -64,6 +70,8 @@ In the editor: `Enter` continues lists · `Tab`/`Shift+Tab` indent · `[[` / `#`
  Android (installable PWA now, Expo later) ─┴─ supabase-js ─▶ Supabase Auth
                                                         └──▶ PostgREST ─▶ Postgres  schema `mneme`  (RLS on every table)
  Vercel = static hosting only
+
+ pg_cron (10 min, opt-in) ─▶ Edge Function `task-reminders` ─▶ Postgres (service_role, 2 functions only) ─▶ Resend
 ```
 
 * **All logic that must be identical on every client lives in Postgres**: ID assignment, tag/link/task extraction,
@@ -73,15 +81,16 @@ In the editor: `Enter` continues lists · `Tab`/`Shift+Tab` indent · `[[` / `#`
 
 ```
 src/
-  api/          typed data layer (notes, search, tasks, tags, revisions, settings, export, auth)
-  lib/          pure logic + tests: markdown renderer model, editing helpers, dates/timezones,
+  api/          typed data layer (notes, search, tasks, tags, saved searches, revisions, settings, export, auth)
+  lib/          pure logic + tests: markdown renderer model, editing helpers, dates/timezones (incl. taskDueStatus),
                 drafts (IndexedDB), sync engine, export formatting, tag tree
-  hooks/        useNoteEditor (autosave engine), hotkeys, media, online…
-  components/   Shell, Editor, NoteBody, NotesList, CommandPalette, ContextPanel, dialogs…
+  hooks/        useNoteEditor (autosave engine), hotkeys, media, online, useSelection (bulk actions)…
+  components/   Shell, Editor, NoteBody, NotesList, BulkBar, CommandPalette, ContextPanel, dialogs…
   pages/        Home, Notes (list+detail), Note, Inbox, Tasks, Search, Index, Tag, Settings, Login, Share
 supabase/
-  migrations/   001–006, versioned, idempotent
-  tests/        SQL test-suite (RLS matrix, sync triggers, search, IDs …) + Supabase shim
+  migrations/   01–15, versioned, idempotent (15 is the one manual, cron-scheduling exception — see §5.6)
+  functions/    task-reminders (the one Edge Function; deployed manually, see §5.6)
+  tests/        SQL test-suite (RLS matrix, sync triggers, search, IDs, rename/merge, reminders …) + Supabase shim
 tests/
   integration/  real client code ↔ real migrations via PostgREST (local, throwaway DB)
   e2e/          Playwright smoke test (optional tooling)
@@ -148,8 +157,12 @@ Inspected from Argus's source **and** the live database (2026-09-20):
   lives in its own schema `mneme`; it creates **nothing** in `public` and never modifies Argus objects.
 * Both apps use the same Supabase Auth users. Mneme adds **no** trigger on `auth.users` (Argus's `handle_new_user`
   keeps working); Mneme creates its own `settings` row lazily.
-* Live extensions: `pgcrypto, uuid-ossp, pg_stat_statements, supabase_vault`. `pg_cron` / `pg_net` are **not** installed
-  (contrary to Argus's SQL files) — Mneme needs neither. Mneme adds only `pg_trgm` (bundled, free-tier OK).
+* Live extensions (as of 2026-09-20): `pgcrypto, uuid-ossp, pg_stat_statements, supabase_vault`. `pg_cron` / `pg_net`
+  were **not** installed then (contrary to Argus's SQL files, whose own weekly-export cron job never activated for the
+  same reason). Migration 15 (§15) enables both, **project-wide** — shared with Argus, since extensions aren't
+  per-schema — to run Mneme's own opt-in reminder job; this does not reactivate Argus's dormant job (its migration
+  failed on the same missing-extension line, so nothing Argus-owned was ever scheduled). Mneme also uses `pg_trgm`
+  (bundled, free-tier OK).
 * Argus applies migrations by pasting SQL into the editor, so its history is not in `supabase_migrations`. Mneme's
   migrations are additive (`if not exists`), each in a transaction.
 * **Never run `supabase db reset`, `db pull` or `db diff` against the shared project.** Use `db push` (only Mneme's files)
@@ -174,6 +187,13 @@ Files in `supabase/migrations/`, in order:
 20260920100500_mneme_06_lists.sql      list/recent RPCs
 20260921100000_mneme_07_themes.sql     settings.theme accepts any theme id (run this to enable the new themes)
 20260921110000_mneme_08_vault.sql      Passwords: end-to-end-encrypted vault tables + atomic re-key/reset RPCs
+20260922100000_mneme_09_tag_rename.sql   tag rename & merge (rewrites #tag text, RLS-scoped)
+20260922100100_mneme_10_task_time.sql    tasks.due_time + due_task_count() for the dock badge
+20260922100200_mneme_11_related_notes.sql  related_notes() RPC (tag overlap + title trigram similarity)
+20260922100300_mneme_12_saved_searches.sql  saved_searches table (named/pinned searches)
+20260922100400_mneme_13_bulk_tags.sql    bulk_add_tag() RPC for the Notes-list multi-select bar
+20260922100500_mneme_14_reminders.sql    reminder settings + the two service_role-only reminder RPCs
+20260922100600_mneme_15_reminders_cron.sql  cron schedule for reminders — run MANUALLY, see 5.6 below
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.
@@ -216,6 +236,27 @@ npm run dev          # http://localhost:5173
 ```
 
 Sign in with your Argus account (or create one — same Auth).
+
+### 5.6 Reminder email setup (optional — skip if you don't want reminder emails)
+
+Off until you do this; the app works fully without it (Settings → Reminders just won't be able to send).
+
+1. Install the Supabase CLI locally if you haven't (`npm i -g supabase`), then `supabase login` and
+   `supabase link --project-ref <your-project-ref>` (the same project as Argus).
+2. Deploy the function: `supabase functions deploy task-reminders`.
+3. Set secrets: `supabase secrets set MNEME_REMINDER_FUNCTION_SECRET=<a random string> MNEME_RESEND_FROM="Mneme <onboarding@resend.dev>"`.
+   `RESEND_API_KEY` is almost certainly already set project-wide for Argus's own email functions — Supabase secrets
+   are shared by every Edge Function in a project, so you don't need to set it again. If Argus doesn't have one yet,
+   create a free [Resend](https://resend.com) account and `supabase secrets set RESEND_API_KEY=...`.
+4. Open `supabase/migrations/20260922100600_mneme_15_reminders_cron.sql`, replace `<project-ref>` and
+   `<mneme-reminder-function-secret>` with your real values, and run it **once** in the SQL editor (this file is
+   intentionally excluded from `db push` / the numbered list above — see its own header comment).
+5. In the app, Settings → Reminders → turn it on, set a lead time and a morning time, and give a task a due date.
+
+**Resend's free sandbox sender caveat**: `onboarding@resend.dev` can only deliver to the email address the Resend
+account itself was created with, until you verify your own domain — the exact same limitation Argus's spending-report
+emails already have. Until then, reminder emails will only actually arrive at that one address regardless of which
+account's task triggered them.
 
 ---
 
@@ -268,20 +309,25 @@ Mneme is its own Vercel project (same account as Argus; free tier is fine).
 ## 9. Testing
 
 ```bash
-npm test          # unit tests (vitest): renderer, editing helpers, dates/timezones, sync engine, export, tag tree
+npm test          # unit tests (vitest): renderer, editing helpers, dates/timezones (incl. taskDueStatus), sync engine, export, tag tree
 npm run test:sql  # SQL suite — needs a THROWAWAY Postgres with the Supabase shim (see below)
 npm run test:int  # integration: real API code + real migrations through PostgREST, in a local throwaway DB
 npm run lint && npm run build
 ```
 
-* **SQL suite** (`supabase/tests/mneme_tests.sql`, ~120 assertions, runs in one rolled-back transaction): ID format /
+* **SQL suite** (`supabase/tests/mneme_tests.sql`, ~160 assertions, runs in one rolled-back transaction): ID format /
   timezone / concurrency past 999, tag & link & task extraction and edits, revisions, search operators, list
-  pagination, and a full **tenant-isolation matrix** — *user B cannot read, update, delete, link to, tag, or
-  attach anything to user A's rows*, `note_counters` unreachable, anon has no access, deleting a user cascades.
+  pagination, tag rename/merge (incl. atomicity of a refused rename and code-span/`[[link]]` protection), task
+  `due_time` survival, saved searches, bulk tag-add, the reminder functions' `service_role`-only gating and timing
+  logic, and a full **tenant-isolation matrix** — *user B cannot read, update, delete, link to, tag, or attach
+  anything to user A's rows*, `note_counters` unreachable, anon has no access, deleting a user cascades.
   Never run it against the production project (it creates `auth.users` rows). `supabase/tests/supabase_shim.sql`
-  provides `auth.uid()` and the `anon`/`authenticated` roles for a plain local Postgres.
+  provides `auth.uid()`, `anon`/`authenticated`/`service_role`, and `extensions` schema access for a plain local
+  Postgres. `related_notes()` (migration 11) needs `pg_trgm`, not installed locally — like trigram search itself,
+  it's excluded from the automated local suite and verified manually instead (see the migration's own comment).
 * **Integration** (`npm run test:int`): needs `initdb/pg_ctl`, `psql`, `podman` (or set `CONTAINER_CLI=docker`) and
-  network access once for the PostgREST image. It never touches your Supabase project.
+  network access once for the PostgREST image. It never touches your Supabase project. Skips the same
+  trigram-dependent migration, plus the manual-only reminders-cron one (see `tests/integration/run.sh`).
 * **Browser smoke test** (`tests/e2e/smoke.mjs`): optional Playwright run of the real UI against the local stack —
   capture, `[[` linking, tasks, search, palette, offline → reconnect, dark mode, mobile layout (run with the strict
   CSP enforced).
@@ -307,8 +353,10 @@ database.
 
 Supabase free: 500 MB DB, projects pause after ~7 days of no activity (Argus + Mneme share one project, so either
 keeping it warm helps), 2 active projects max — Mneme deliberately does **not** need a new one. Mneme uses no Storage,
-no Edge Functions, no realtime, no cron, no background workers, and issues no polling except a 30-second local-draft
-check that makes a network call **only if unsent drafts exist**.
+no realtime, no background workers, and issues no polling except a 30-second local-draft check that makes a network
+call **only if unsent drafts exist**. The one exception is the optional, off-by-default reminder feature (§15): one
+Edge Function, woken every 10 minutes by `pg_cron` — negligible against Supabase's free-tier Edge Function invocation
+quota, and it does nothing at all for anyone who hasn't turned Reminders on in Settings.
 
 ## 12. Troubleshooting
 
@@ -326,8 +374,9 @@ check that makes a network call **only if unsent drafts exist**.
 ## 13. Not built (on purpose) / later
 
 Files, images, PDFs, audio, video, AI summaries/auto-tagging, graph visualisation, collaboration/sharing, calendars,
-templates, realtime, Edge Functions, cron, full offline replica. Candidates for later: tag rename/merge (needs a safe
-server-side text rewrite), daily/weekly review, related-note suggestions, an Expo client.
+templates, realtime, full offline replica. (Edge Functions/cron are no longer a blanket "not built" — see §15: one
+narrow, opt-in exception for reminder emails, nothing else uses them.) Candidates for later: daily/weekly review
+digest, an Expo client.
 
 ---
 
@@ -360,3 +409,28 @@ A separate section (**Passwords**, key icon in the dock) for logins: **website �
   device or a compromised browser. It uses only standard WebCrypto primitives and has **not** been independently audited —
   for your most critical accounts consider a dedicated, audited manager as well.
 * The strength meter is a heuristic estimate, not a guarantee.
+
+---
+
+## 15. Reminders (optional, off by default)
+
+An email at your login address when a task's due date/time arrives. Setup is manual and one-time — §5.6 walks through
+it — because it's the one place Mneme steps outside "just Postgres + RLS": a single Edge Function
+(`supabase/functions/task-reminders`), woken every 10 minutes by `pg_cron`.
+
+* **Timing.** A task with a specific due **time** is emailed `reminder_lead_minutes` before it (default 60). A task
+  with only a due **date** is emailed at a fixed `reminder_morning_time` (default 09:00) in your timezone. Both are
+  editable in Settings → Reminders, alongside the on/off toggle.
+* **One email per due task**, not a recurring nag — `tasks.reminder_sent_at` dedupes. Changing a task's due date/time,
+  or reopening a completed task, resets it, so a reschedule gets a fresh reminder.
+* **Multiple tasks due at once are one email**, not one per task.
+* **Privilege boundary.** The two functions the Edge Function calls — `tasks_due_for_reminder()` (reads across every
+  user, including their login email) and `mark_reminder_sent()` — are granted **only to `service_role`**, not even
+  `authenticated`. No client, including Mneme's own frontend, can ever call them; only the deployed Edge Function
+  (holding the service-role key) can.
+* **Free-tier email limits.** Sent via [Resend](https://resend.com), the same provider Argus already uses — see the
+  sandbox-sender caveat in §5.6. Resend's free tier and the 10-minute cron tick both stay comfortably inside Supabase
+  and Resend's free quotas for personal use.
+* **Turning it off** again: Settings → Reminders, or leave every task without a due date. To remove the infrastructure
+  entirely: `select cron.unschedule('mneme-task-reminders');` and `supabase functions delete task-reminders` — the
+  `pg_cron`/`pg_net` extensions themselves are left enabled since Argus's SQL files already assume them.

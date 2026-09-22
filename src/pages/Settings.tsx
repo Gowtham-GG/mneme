@@ -20,7 +20,7 @@ function Card({ title, children, id }: { title: string; children: React.ReactNod
 
 export function Settings() {
   const { user } = useAuth()
-  const { theme, timezone, update } = useSettings()
+  const { theme, timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, update } = useSettings()
   const { toast } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
@@ -81,6 +81,43 @@ export function Settings() {
             </select>
             {browserTimezone() !== timezone && isValidTimezone(browserTimezone()) && <button className="text-sm" onClick={() => void update({ timezone: browserTimezone() })}>Use {browserTimezone()}</button>}
           </div>
+        </Card>
+
+        <Card title="Reminders">
+          <p className="mb-3 text-sm text-muted">
+            Get an email at your login address when a task is due. A task with a specific time is emailed a bit
+            beforehand; a task with only a date is emailed at a fixed time that morning. Off by default.
+          </p>
+          <label className="mb-3 flex items-center gap-2.5 text-sm">
+            <input
+              type="checkbox" checked={remindersEnabled}
+              onChange={(e) => void update({ reminders_enabled: e.target.checked }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+              className="size-4 accent-[var(--accent)]"
+            />
+            Email me task reminders
+          </label>
+          {remindersEnabled && (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+              <label className="flex items-center gap-2">
+                Lead time for timed tasks
+                <select
+                  value={reminderLeadMinutes}
+                  onChange={(e) => void update({ reminder_lead_minutes: Number(e.target.value) }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+                  className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
+                >
+                  {[15, 30, 60, 120, 1440].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 1440 ? '1 day' : `${m / 60} hr`}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                Morning-of time for date-only tasks
+                <input
+                  type="time" value={reminderMorningTime.slice(0, 5)}
+                  onChange={(e) => void update({ reminder_morning_time: e.target.value }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+                  className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+          )}
         </Card>
 
         <Card title="Export your notes" id="export">

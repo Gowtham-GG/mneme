@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatDueDate, formatLongDate } from '@/lib/dates'
+import { useQuery } from '@tanstack/react-query'
+import { relatedNotes } from '@/api/tags'
+import { formatLongDate, formatTimeOfDay } from '@/lib/dates'
 import { displayTitle } from '@/lib/text'
-import type { LinkedNote, NoteContext } from '@/types/db'
+import type { LinkedNote, NoteContext, TaskPriority } from '@/types/db'
 import { IconPlus, IconX } from './icons'
 
 interface Props {
   ctx: NoteContext | undefined
   tz: string
+  noteId: string
   publicId: string | null
   createdAt: string
   updatedAt: string
@@ -16,6 +19,7 @@ interface Props {
   onAddTag: (name: string) => void
   onRemoveTag: (t: NoteContext['tags'][number]) => void
   onToggleTask: (line: number, done: boolean) => void
+  onUpdateTask: (taskId: string, patch: { due_date?: string | null; due_time?: string | null; priority?: TaskPriority | null }) => void
   disabled?: boolean
 }
 
@@ -45,10 +49,11 @@ function LinkList({ items, arrow }: { items: LinkedNote[]; arrow: string }) {
   )
 }
 
-export function ContextPanel({ ctx, tz, publicId, createdAt, updatedAt, paperRef, onPaperRef, onAddTag, onRemoveTag, onToggleTask, disabled }: Props) {
+export function ContextPanel({ ctx, tz, noteId, publicId, createdAt, updatedAt, paperRef, onPaperRef, onAddTag, onRemoveTag, onToggleTask, onUpdateTask, disabled }: Props) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
   const submit = () => { const v = draft.trim(); if (v) onAddTag(v); setDraft(''); setAdding(false) }
+  const related = useQuery({ queryKey: ['related-notes', noteId], queryFn: () => relatedNotes(noteId) })
 
   return (
     <div className="text-sm">
@@ -82,7 +87,7 @@ export function ContextPanel({ ctx, tz, publicId, createdAt, updatedAt, paperRef
 
       <Section title="Tasks">
         {(ctx?.tasks ?? []).length ? (
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {ctx!.tasks.map((t) => (
               <li key={t.id} className="flex items-start gap-2">
                 <input
@@ -91,14 +96,64 @@ export function ContextPanel({ ctx, tz, publicId, createdAt, updatedAt, paperRef
                   onChange={(e) => onToggleTask(t.position, e.target.checked)}
                   className="mt-1 accent-[var(--task)]"
                 />
-                <span className={t.status === 'done' ? 'text-faint line-through' : ''}>
-                  {t.title}
-                  {t.due_date && <span className="ml-1.5 rounded bg-task-soft px-1 text-xs text-task">{formatDueDate(t.due_date, tz)}</span>}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <span className={t.status === 'done' ? 'text-faint line-through' : ''}>{t.title}</span>
+                  {t.status === 'open' && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <input
+                        type="date" aria-label={`Due date for ${t.title}`} disabled={disabled} value={t.due_date ?? ''}
+                        onChange={(e) => onUpdateTask(t.id, { due_date: e.target.value || null, due_time: e.target.value ? t.due_time : null })}
+                        className="rounded border border-line bg-transparent px-1 py-0.5 text-xs"
+                      />
+                      {t.due_date && (
+                        <input
+                          type="time" aria-label={`Due time for ${t.title}`} disabled={disabled} value={t.due_time ?? ''}
+                          onChange={(e) => onUpdateTask(t.id, { due_time: e.target.value || null })}
+                          className="rounded border border-line bg-transparent px-1 py-0.5 text-xs"
+                          title={t.due_time ? formatTimeOfDay(t.due_time) : 'Add a time (optional)'}
+                        />
+                      )}
+                      <select
+                        aria-label={`Priority for ${t.title}`} disabled={disabled} value={t.priority ?? ''}
+                        onChange={(e) => onUpdateTask(t.id, { priority: (e.target.value || null) as TaskPriority | null })}
+                        className="rounded border border-line bg-transparent px-1 py-0.5 text-xs"
+                      >
+                        <option value="">No priority</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         ) : <p className="text-faint">Write <code className="rounded bg-panel px-1">- [ ] something</code> to add one</p>}
+        <p className="mt-2 text-xs text-faint">The title comes from the checkbox line — edit it in the note. Date, time and priority can be set here.</p>
+      </Section>
+
+      <Section title="Related">
+        {related.isLoading ? <p className="text-sm text-faint">Looking…</p>
+          : related.data?.length ? (
+            <ul className="space-y-1">
+              {related.data.map((r) => (
+                <li key={r.id}>
+                  <Link to={`/n/${r.public_id}`} className="group flex flex-col gap-0.5 rounded px-1 py-1 no-underline hover:bg-hover">
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-sm">{displayTitle({ title: r.title })}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-faint">{r.public_id}</span>
+                    </span>
+                    {!!r.shared_tags.length && (
+                      <span className="flex flex-wrap gap-1">
+                        {r.shared_tags.slice(0, 4).map((t) => <span key={t} className="rounded-full bg-accent-soft px-1.5 text-[11px] text-accent">#{t}</span>)}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-sm text-faint">Nothing similar yet</p>}
       </Section>
 
       <Section title="Paper reference">

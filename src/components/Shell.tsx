@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { signOut } from '@/api/auth'
 import { inboxCount } from '@/api/notes'
+import { dueTaskCount } from '@/api/tasks'
 import { useHotkeys } from '@/hooks/useHotkeys'
 import { useOnline } from '@/hooks/useOnline'
 import { Brand } from './Brand'
@@ -42,6 +43,7 @@ export function Shell() {
   const [help, setHelp] = useState(false)
   const [more, setMore] = useState(false)
   const inbox = useQuery({ queryKey: ['inbox-count'], queryFn: inboxCount, staleTime: 30_000 })
+  const dueTasks = useQuery({ queryKey: ['due-task-count'], queryFn: dueTaskCount, staleTime: 30_000 })
   const inEditor = loc.pathname.startsWith('/n/')
   // On phones the editor is full-screen (its own header, no dock); on desktop chrome stays.
   const chrome = inEditor ? 'hidden lg:flex' : 'flex'
@@ -103,7 +105,7 @@ export function Shell() {
           <button aria-label="Capture a new note (C)" title="Capture (C)" className="bg-accent mx-1 flex size-12 items-center justify-center rounded-full text-on-accent active:scale-95" onClick={() => nav('/n/new')}>
             <IconPlus size={24} />
           </button>
-          <DockLink to="/tasks" label="Tasks" icon={<IconTasks />} />
+          <DockLink to="/tasks" label="Tasks" icon={<IconTasks />} badge={dueTasks.data || undefined} />
           <DockLink to="/search" label="Search" icon={<IconSearch />} hideOnSmall />
           <DockLink to="/passwords" label="Passwords" icon={<IconKey />} hideOnSmall />
           <button aria-label="More" aria-haspopup="menu" aria-expanded={more} title="More" onClick={() => setMore((v) => !v)}

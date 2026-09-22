@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchSettings, saveSettings } from '@/api/settings'
+import { fetchSettings, saveSettings, type SettingsPatch } from '@/api/settings'
 import { useAuth } from '@/hooks/useAuth'
 import { browserTimezone, isValidTimezone } from '@/lib/dates'
 import { normalizePref, resolveTheme, type ThemeId, type ThemePref } from '@/lib/themes'
@@ -12,11 +12,18 @@ interface SettingsValue {
   theme: ThemePref
   /** the concrete theme currently applied */
   activeTheme: ThemeId
+  remindersEnabled: boolean
+  reminderLeadMinutes: number
+  reminderMorningTime: string
   ready: boolean
-  update: (patch: { timezone?: string; theme?: ThemePref }) => Promise<void>
+  update: (patch: SettingsPatch) => Promise<void>
 }
 
-const SettingsContext = createContext<SettingsValue>({ timezone: 'UTC', theme: 'amethyst', activeTheme: 'amethyst', ready: false, update: async () => {} })
+const SettingsContext = createContext<SettingsValue>({
+  timezone: 'UTC', theme: 'amethyst', activeTheme: 'amethyst',
+  remindersEnabled: false, reminderLeadMinutes: 60, reminderMorningTime: '09:00',
+  ready: false, update: async () => {},
+})
 const THEME_KEY = 'mneme-theme'
 
 const prefersDark = () => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -36,6 +43,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const timezone = q.data?.timezone && isValidTimezone(q.data.timezone) ? q.data.timezone : browserTimezone()
   const theme: ThemePref = q.data ? normalizePref(q.data.theme) : local
+  const remindersEnabled = q.data?.reminders_enabled ?? false
+  const reminderLeadMinutes = q.data?.reminder_lead_minutes ?? 60
+  const reminderMorningTime = q.data?.reminder_morning_time ?? '09:00'
 
   const [dark, setDark] = useState(prefersDark)
   useEffect(() => {
@@ -47,7 +57,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { applyTheme(theme) }, [theme, dark])
 
-  const update = useCallback(async (patch: { timezone?: string; theme?: ThemePref }) => {
+  const update = useCallback(async (patch: SettingsPatch) => {
     if (patch.theme) { setLocal(patch.theme); applyTheme(patch.theme) } // instant, even before the save returns
     const saved = await saveSettings(patch)
     qc.setQueryData<Settings | null>(['settings', user?.id], saved)
@@ -63,8 +73,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [user, q.isSuccess, q.data, update])
 
   const value = useMemo(
-    () => ({ timezone, theme, activeTheme: resolveTheme(theme, dark), ready: !user || q.isSuccess, update }),
-    [timezone, theme, dark, user, q.isSuccess, update],
+    () => ({
+      timezone, theme, activeTheme: resolveTheme(theme, dark),
+      remindersEnabled, reminderLeadMinutes, reminderMorningTime,
+      ready: !user || q.isSuccess, update,
+    }),
+    [timezone, theme, dark, remindersEnabled, reminderLeadMinutes, reminderMorningTime, user, q.isSuccess, update],
   )
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

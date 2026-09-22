@@ -61,6 +61,19 @@ export async function deleteNoteForever(id: string): Promise<void> {
   if (error) throw toError(error)
 }
 
+/** Bulk versions for the Notes/Search list's multi-select action bar — one PostgREST round trip. */
+export async function bulkPatchNotes(ids: string[], patch: NotePatch): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await supabase.from('notes').update(patch).in('id', ids)
+  if (error) throw toError(error)
+}
+
+export async function bulkDeleteForever(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await supabase.from('notes').delete().in('id', ids)
+  if (error) throw toError(error)
+}
+
 export async function emptyTrash(): Promise<number> {
   const { data, error } = await supabase.rpc('empty_trash')
   if (error) throw toError(error)

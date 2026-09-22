@@ -8,7 +8,8 @@
 begin;
 
 create schema t;
-grant usage on schema t to authenticated, anon;
+-- service_role only needed from section 9 on (reminders), but harmless to grant up front
+grant usage on schema t to authenticated, anon, service_role;
 
 create function t.ok(c boolean, msg text) returns void language plpgsql as $$
 begin
@@ -41,7 +42,7 @@ begin execute q; return false; exception when others then return true; end $$;
 create function t.n(q text) returns bigint language plpgsql as $$
 declare r bigint; begin execute q into r; return r; end $$;
 
-grant execute on all functions in schema t to authenticated, anon;
+grant execute on all functions in schema t to authenticated, anon, service_role;
 
 -- scratch key/value store for ids shared between DO blocks
 create table t.kv (k text primary key, v text);
@@ -434,6 +435,199 @@ begin
   perform t.ok((select count(*) from mneme.vault_items where user_id = 'bbbbbbbb-0000-0000-0000-000000000002') = 5000, 'vault_reset never touches other users');
 end $$;
 
+
+-- ==================================================== 6. tag rename & merge ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; n2 uuid; n3 uuid; r text;
+begin
+  perform t.login(a);
+  delete from mneme.notes; delete from mneme.tags;
+
+  insert into mneme.notes (content) values (
+    '#jvm today and #jvm/memory too, also `#jvm` in code and [[x #jvm y]]'
+  ) returning id into n1;
+  insert into mneme.notes (content) values ('a second note, also #jvm') returning id into n2;
+  insert into mneme.tags (name) values ('manualonly');
+  insert into mneme.note_tags (note_id, tag_id, source) select n1, id, 'manual' from mneme.tags where name = 'manualonly';
+
+  perform mneme.rename_tag('jvm', 'kotlin');
+
+  perform t.ok((select content from mneme.notes where id = n1)
+    = '#kotlin today and #kotlin/memory too, also `#jvm` in code and [[x #jvm y]]',
+    'rename rewrites real occurrences, leaves code spans/[[link labels]] untouched');
+  perform t.ok((select content from mneme.notes where id = n2) = 'a second note, also #kotlin', 'rename rewrites every affected note');
+  select string_agg(g.name, ',' order by g.name) into r
+    from mneme.note_tags nt join mneme.tags g on g.id = nt.tag_id where nt.note_id = n1 and nt.source = 'inline';
+  perform t.ok(r = 'kotlin,kotlin/memory', 'renaming jvm cascades to nested jvm/memory: ' || r);
+  perform t.ok(not exists (select 1 from mneme.tags where name in ('jvm', 'jvm/memory')), 'old tag rows gone');
+  select string_agg(name || '=' || note_count, ',' order by name) into r from mneme.tag_counts();
+  perform t.ok(r like '%kotlin=2%' and r like '%kotlin/memory=1%', 'tag_counts reflects the rename with zero extra bookkeeping: ' || r);
+
+  -- manual-only tag rename (no note text to rewrite)
+  perform mneme.rename_tag('manualonly', 'renamed');
+  perform t.ok((select g.name from mneme.note_tags nt join mneme.tags g on g.id = nt.tag_id where nt.note_id = n1 and nt.source = 'manual')
+    = 'renamed', 'manual-only tag renamed directly (no text to rewrite)');
+
+  -- renaming onto an existing name is refused, and refused atomically
+  perform t.ok(t.throws($q$ select mneme.rename_tag('kotlin', 'renamed') $q$), 'rename onto an existing name is refused (use merge)');
+  perform t.ok(exists (select 1 from mneme.tags where name = 'kotlin') and exists (select 1 from mneme.tags where name = 'kotlin/memory'),
+               'a refused rename changes nothing (rolled back atomically)');
+
+  -- merge: exact names only, no nested-children cascade
+  perform mneme.merge_tags(array['kotlin'], 'java');
+  perform t.ok(not exists (select 1 from mneme.tags where name = 'kotlin'), 'merged source tag row removed');
+  perform t.ok(exists (select 1 from mneme.tags where name = 'kotlin/memory'), 'merge does not cascade to nested children');
+  select string_agg(g.name, ',' order by g.name) into r
+    from mneme.note_tags nt join mneme.tags g on g.id = nt.tag_id where nt.note_id = n1 and nt.source = 'inline';
+  perform t.ok(r = 'java,kotlin/memory', 'note now carries the merge target instead of the source: ' || r);
+  perform t.ok((select content from mneme.notes where id = n2) = 'a second note, also #java', 'merge rewrites text the same way rename does');
+
+  perform t.logout();
+
+  -- RLS: B cannot rename or merge tags A owns
+  perform t.login(b);
+  insert into mneme.notes (content) values ('nothing to do with #unrelated') returning id into n3;
+  perform t.ok(t.throws($q$ select mneme.rename_tag('java', 'stolen') $q$), 'B renaming a name only A has: not found for B');
+  perform mneme.merge_tags(array['java'], 'whatever');   -- B has no #java of its own: silently a no-op
+  perform t.logout();   -- check as an unrestricted observer: RLS as B would hide A's row regardless, proving nothing
+  perform t.ok(exists (select 1 from mneme.tags where user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and name = 'java'),
+               'B merging a name it does not have never touches A''s tag');
+end $$;
+
+-- ====================================================== 7. task due time ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; tid uuid; today date;
+begin
+  perform t.login(a);
+  delete from mneme.notes; delete from mneme.tasks;
+  update mneme.settings set timezone = 'UTC';
+  select (now() at time zone 'UTC')::date into today;
+
+  insert into mneme.notes (content) values (E'- [ ] Ship the release') returning id into n1;
+  select id into tid from mneme.tasks where note_id = n1;
+  update mneme.tasks set due_date = today, due_time = '14:30' where id = tid;
+  update mneme.notes set content = replace(content, 'Ship the release', 'Ship the release today') where id = n1;
+  perform t.ok((select due_date || '|' || due_time from mneme.tasks where id = tid) = today || '|14:30:00',
+               'edited task text keeps due_time too (same as due_date/priority)');
+
+  perform t.ok(mneme.due_task_count() = 1, 'due_task_count counts an open task due today');
+  update mneme.tasks set due_date = today + 1 where id = tid;
+  perform t.ok(mneme.due_task_count() = 0, 'due_task_count excludes a task due tomorrow');
+  update mneme.tasks set due_date = today - 1 where id = tid;
+  perform t.ok(mneme.due_task_count() = 1, 'due_task_count includes an overdue task');
+  update mneme.tasks set status = 'done' where id = tid;
+  perform t.ok(mneme.due_task_count() = 0, 'due_task_count excludes a completed task');
+  perform t.logout();
+
+  -- RLS
+  perform t.login(b);
+  perform t.ok(t.n(format($q$ with u as (update mneme.tasks set due_time = '00:00' where id = %L returning 1) select count(*) from u $q$, tid)) = 0,
+               'B cannot set A''s task due_time');
+  perform t.ok(mneme.due_task_count() = 0, 'B''s due_task_count never reflects A''s tasks');
+  perform t.logout();
+end $$;
+
+-- ============================================ 8. saved searches & bulk tag ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; n2 uuid; sid uuid; r text;
+begin
+  perform t.login(a);
+  delete from mneme.notes; delete from mneme.saved_searches;
+
+  insert into mneme.saved_searches (name, query) values ('Open questions', 'type:question is:task') returning id into sid;
+  perform t.ok((select count(*) from mneme.saved_searches) = 1, 'A saves a search');
+  update mneme.saved_searches set pinned = true where id = sid;
+  perform t.ok((select pinned from mneme.saved_searches where id = sid), 'pin toggles');
+  perform t.ok(t.throws($q$ insert into mneme.saved_searches (name, query) values ('', 'x') $q$), 'empty name rejected');
+  perform t.ok(t.throws($q$ insert into mneme.saved_searches (name, query) values ('x', '') $q$), 'empty query rejected');
+
+  -- bulk tag
+  insert into mneme.notes (content) values ('first') returning id into n1;
+  insert into mneme.notes (content) values ('second') returning id into n2;
+  perform mneme.bulk_add_tag(array[n1, n2], '#Team/Alpha');
+  select string_agg(distinct g.name, ',') into r
+    from mneme.note_tags nt join mneme.tags g on g.id = nt.tag_id where nt.note_id in (n1, n2);
+  perform t.ok(r = 'team/alpha', 'bulk_add_tag normalises case/leading # like addManualTag: ' || r);
+  perform t.ok((select count(*) from mneme.note_tags nt join mneme.tags g on g.id = nt.tag_id where g.name = 'team/alpha') = 2,
+               'tag applied to both notes in one call');
+  perform t.ok(t.throws($q$ select mneme.bulk_add_tag('{}'::uuid[], 'Not Valid!') $q$), 'invalid tag name rejected');
+
+  perform t.logout();
+
+  -- RLS
+  perform t.login(b);
+  perform t.ok(t.n('select count(*) from mneme.saved_searches') = 0, 'B sees no saved searches of A');
+  perform t.ok(t.n(format($q$ with u as (update mneme.saved_searches set query = 'pwned' where id = %L returning 1) select count(*) from u $q$, sid)) = 0,
+               'B cannot edit A''s saved search');
+  perform mneme.bulk_add_tag(array[n1], 'sneaky');   -- n1 belongs to A; the function must touch nothing for B
+  perform t.logout();   -- check as an unrestricted observer: RLS as B would hide A's row regardless, proving nothing
+  perform t.ok(not exists (select 1 from mneme.tags where user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and name = 'sneaky'),
+               'B cannot bulk-tag A''s note via a note id it does not own');
+end $$;
+
+-- ============================================ 9. reminders (service_role only) ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; tid uuid; today date; cnt bigint;
+begin
+  perform t.login(a);
+  delete from mneme.notes; delete from mneme.tasks;
+  update mneme.settings set timezone = 'UTC', reminders_enabled = true, reminder_lead_minutes = 60, reminder_morning_time = '09:00';
+  select (now() at time zone 'UTC')::date into today;
+
+  insert into mneme.notes (content) values ('capture') returning id into n1;
+  insert into mneme.tasks (source, title, due_date, due_time)
+    values ('standalone', 'Call the dentist', today, (now() at time zone 'UTC')::time + interval '30 minutes')
+    returning id into tid;
+
+  -- neither authenticated nor anon may call the service-role-only functions
+  perform t.ok(t.throws('select * from mneme.tasks_due_for_reminder()'), 'authenticated cannot call tasks_due_for_reminder');
+  perform t.ok(t.throws('select mneme.mark_reminder_sent(array[]::uuid[])'), 'authenticated cannot call mark_reminder_sent');
+  perform t.logout();
+  perform t.anon();
+  perform t.ok(t.throws('select * from mneme.tasks_due_for_reminder()'), 'anon cannot call tasks_due_for_reminder either');
+  perform t.logout();
+
+  -- service_role: the task is due within the lead time
+  execute 'set local role service_role';
+  select count(*) into cnt from mneme.tasks_due_for_reminder() where task_id = tid;
+  perform t.ok(cnt = 1, 'a task due in 30 minutes is picked up with a 60-minute lead time');
+  perform mneme.mark_reminder_sent(array[tid]);
+  select count(*) into cnt from mneme.tasks_due_for_reminder() where task_id = tid;
+  perform t.ok(cnt = 0, 'mark_reminder_sent dedupes: the same task is not offered again');
+  execute 'reset role';
+
+  -- rescheduling resets the dedupe marker
+  perform t.login(a);
+  update mneme.tasks set due_time = due_time + interval '2 hours' where id = tid;
+  perform t.ok((select reminder_sent_at is null from mneme.tasks where id = tid), 'changing due_time resets reminder_sent_at');
+  perform t.logout();
+
+  -- a date-only task follows the fixed morning time, not a (now-cleared) due_time
+  -- (clearing due_time is an ordinary user edit -- done as the task's owner, not as service_role,
+  -- which only has execute on the two functions above, no direct table grants)
+  perform t.login(a);
+  update mneme.tasks set due_time = null where id = tid;
+  perform t.logout();
+  execute 'set local role service_role';
+  select count(*) into cnt from mneme.tasks_due_for_reminder() where task_id = tid;
+  perform t.ok(cnt = (case when (now() at time zone 'UTC') >= (today + time '09:00') then 1 else 0 end),
+               'a date-only task is judged against reminder_morning_time');
+
+  -- an opted-out user's own due task never appears (reminders_enabled defaults to false)
+  execute 'reset role';
+  perform t.login(b);
+  insert into mneme.notes (content) values ('capture') returning id into n1;   -- lazily creates B's settings row too
+  insert into mneme.tasks (source, title, due_date, due_time) values ('standalone', 'B''s task', today, '00:00');
+  perform t.logout();
+  execute 'set local role service_role';
+  select count(*) into cnt from mneme.tasks_due_for_reminder() where user_id = 'bbbbbbbb-0000-0000-0000-000000000002';
+  perform t.ok(cnt = 0, 'an opted-out user (default reminders_enabled = false) is never included even with a due task');
+  execute 'reset role';
+end $$;
 
 rollback;
 \echo ALL TESTS PASSED

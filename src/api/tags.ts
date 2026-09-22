@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { NoteContext, TagCount } from '@/types/db'
+import type { NoteContext, RelatedNote, TagCount } from '@/types/db'
 import { toError } from './errors'
 
 export async function tagCounts(): Promise<TagCount[]> {
@@ -41,4 +41,30 @@ export async function removeManualTag(noteId: string, tagId: string): Promise<vo
 export async function setLinkType(linkId: string, relationship_type: string): Promise<void> {
   const { error } = await supabase.from('note_links').update({ relationship_type }).eq('id', linkId)
   if (error) throw toError(error)
+}
+
+/** Rename a tag (and any nested children). Errors if the new name is already taken — use mergeTags then. */
+export async function renameTag(oldName: string, newName: string): Promise<void> {
+  const { error } = await supabase.rpc('rename_tag', { p_old_name: oldName, p_new_name: newName })
+  if (error) throw toError(error)
+}
+
+/** Merge one or more tags into a target tag (exact names, no nested-children cascade). */
+export async function mergeTags(sourceNames: string[], targetName: string): Promise<void> {
+  const { error } = await supabase.rpc('merge_tags', { p_source_names: sourceNames, p_target_name: targetName })
+  if (error) throw toError(error)
+}
+
+/** Add a tag to many notes in one round trip (used by the Notes-list bulk action bar). */
+export async function bulkAddTag(noteIds: string[], rawName: string): Promise<void> {
+  const name = rawName.trim().replace(/^#/, '').toLowerCase().replace(/[/-]+$/, '')
+  const { error } = await supabase.rpc('bulk_add_tag', { p_note_ids: noteIds, p_tag_name: name })
+  if (error) throw toError(error)
+}
+
+/** Related-note suggestions: tag overlap + title similarity, no AI. */
+export async function relatedNotes(noteId: string, limit = 5): Promise<RelatedNote[]> {
+  const { data, error } = await supabase.rpc('related_notes', { p_note_id: noteId, p_limit: limit })
+  if (error) throw toError(error)
+  return (data as RelatedNote[]) ?? []
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, dayKey, presetRange, startOfDayISO, todayKey, zonedMidnight } from './dates'
+import { addDays, dayKey, formatTimeOfDay, presetRange, startOfDayISO, taskDueStatus, todayKey, zonedMidnight } from './dates'
 
 describe('dates (timezone aware)', () => {
   it('dayKey uses the given timezone, not the machine', () => {
@@ -31,5 +31,25 @@ describe('dates (timezone aware)', () => {
     const now = new Date('2026-09-10T20:00:00Z')
     expect(todayKey('Asia/Kolkata', now)).toBe('2026-09-11')
     expect(startOfDayISO('2026-09-11', 'Asia/Kolkata')).toBe('2026-09-10T18:30:00.000Z')
+  })
+  it('taskDueStatus: date-only tasks', () => {
+    const now = new Date('2026-09-16T10:00:00Z') // 2026-09-16 in UTC
+    expect(taskDueStatus(null, null, 'UTC', now)).toBe('none')
+    expect(taskDueStatus('2026-09-15', null, 'UTC', now)).toBe('overdue')
+    expect(taskDueStatus('2026-09-16', null, 'UTC', now)).toBe('due-today')
+    expect(taskDueStatus('2026-09-17', null, 'UTC', now)).toBe('upcoming')
+  })
+  it('taskDueStatus: a due time on today only flips to overdue once it has passed', () => {
+    const now = new Date('2026-09-16T10:00:00Z') // 10:00 UTC
+    expect(taskDueStatus('2026-09-16', '09:00', 'UTC', now)).toBe('overdue')
+    expect(taskDueStatus('2026-09-16', '11:00', 'UTC', now)).toBe('due-today')
+    // a past due_time on a past day is still just "overdue" (the day already governs)
+    expect(taskDueStatus('2026-09-15', '23:00', 'UTC', now)).toBe('overdue')
+  })
+  it('formatTimeOfDay', () => {
+    expect(formatTimeOfDay('09:00')).toBe('9am')
+    expect(formatTimeOfDay('00:00')).toBe('12am')
+    expect(formatTimeOfDay('13:30')).toBe('1:30pm')
+    expect(formatTimeOfDay('23:05')).toBe('11:05pm')
   })
 })

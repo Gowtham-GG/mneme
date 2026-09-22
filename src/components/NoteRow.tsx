@@ -16,17 +16,28 @@ interface Props {
   to?: string
   /** instant to display instead of created_at (e.g. updated_at when sorting by edit time) */
   time?: string
+  /** multi-select mode (Notes/Search bulk actions): shows a checkbox, clicking the row toggles instead of navigating */
+  selectMode?: boolean
+  checked?: boolean
+  onToggleCheck?: () => void
 }
 
-export function NoteRow({ note, tz, selected, showTime = true, highlight, to, time }: Props) {
+export function NoteRow({ note, tz, selected, showTime = true, highlight, to, time, selectMode, checked, onToggleCheck }: Props) {
   const title = displayTitle(note)
   const preview = highlight ? null : previewText(note)
   return (
     <Link
       to={to ?? `/n/${note.public_id}`}
       aria-current={selected ? 'true' : undefined}
+      onClick={selectMode ? (e) => { e.preventDefault(); onToggleCheck?.() } : undefined}
       className={`group flex gap-3 rounded-2xl px-3.5 py-3 no-underline hover:no-underline ${selected ? 'bg-accent-soft shadow-[inset_0_1px_0_var(--glass-hi)]' : 'hover:bg-hover'}`}
     >
+      {selectMode && (
+        <input
+          type="checkbox" checked={!!checked} onChange={onToggleCheck} onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${title}`} className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
+        />
+      )}
       {showTime && <span className="w-11 shrink-0 pt-0.5 text-xs tabular-nums text-faint">{formatTime(time ?? note.created_at, tz)}</span>}
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">

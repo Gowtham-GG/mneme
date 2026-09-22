@@ -65,6 +65,7 @@ export interface TaskItem {
   status: TaskStatus
   priority: TaskPriority | null
   due_date: string | null
+  due_time: string | null
   position: number
   created_at: string
   completed_at: string | null
@@ -86,7 +87,11 @@ export interface NoteContext {
   tags: { id: string; name: string; source: 'inline' | 'manual' }[]
   links_to: LinkedNote[]
   linked_from: LinkedNote[]
-  tasks: { id: string; title: string; status: TaskStatus; due_date: string | null; priority: TaskPriority | null; position: number }[]
+  tasks: {
+    id: string; title: string; status: TaskStatus
+    due_date: string | null; due_time: string | null
+    priority: TaskPriority | null; position: number
+  }[]
 }
 
 export interface TagCount {
@@ -95,10 +100,32 @@ export interface TagCount {
   direct_count: number
 }
 
+/** Row shape of the related_notes() RPC. */
+export interface RelatedNote {
+  id: string
+  public_id: string
+  title: string | null
+  shared_tags: string[]
+  score: number
+}
+
+export interface SavedSearch {
+  id: string
+  user_id: string
+  name: string
+  query: string
+  pinned: boolean
+  position: number
+  created_at: string
+}
+
 export type { ThemePref } from '@/lib/themes'
 
 export interface Settings {
   user_id: string
   timezone: string
   theme: ThemePref
+  reminders_enabled: boolean
+  reminder_lead_minutes: number
+  reminder_morning_time: string
 }

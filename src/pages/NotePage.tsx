@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { deleteNoteForever, fetchNoteByPublicId, markViewed, patchNote, restoreNote, setNoteType, unarchiveNote } from '@/api/notes'
 import { addManualTag, noteContext, removeManualTag } from '@/api/tags'
+import { updateTask } from '@/api/tasks'
 import { ConfirmDialog } from '@/components/Dialog'
 import { ConflictDialog } from '@/components/ConflictDialog'
 import { ContextPanel } from '@/components/ContextPanel'
@@ -20,7 +21,7 @@ import { useIsDesktop } from '@/hooks/useMedia'
 import { useNoteEditor } from '@/hooks/useNoteEditor'
 import { formatLongDate } from '@/lib/dates'
 import { removeInlineTag, toggleTaskInContent } from '@/lib/text'
-import type { Note, NoteContext, NoteType } from '@/types/db'
+import type { Note, NoteContext, NoteType, TaskPriority } from '@/types/db'
 
 /** /n/new starts a capture; /n/N-260920-042 opens an existing note. The session key keeps the editor
  *  mounted when the URL flips from /n/new to the note's real ID after its first save. */
@@ -105,6 +106,9 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
   }
 
   const toggleTask = (line: number, done: boolean) => ed.setContent(toggleTaskInContent(ed.content, line, done))
+  const onUpdateTask = async (taskId: string, p: { due_date?: string | null; due_time?: string | null; priority?: TaskPriority | null }) => {
+    try { await updateTask(taskId, p); void ctx.refetch() } catch { toast('Couldn’t update the task.', { kind: 'error' }) }
+  }
   const onRemoveTag = async (t: NoteContext['tags'][number]) => {
     try {
       if (t.source === 'manual') { await removeManualTag(id, t.id); void ctx.refetch(); refresh() }
@@ -200,9 +204,9 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
             {/* context: below the note on small screens */}
             {!desktop && persisted && (
               <div className="mt-8 border-t border-line pt-5">
-                <ContextPanel ctx={ctx.data} tz={tz} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
+                <ContextPanel ctx={ctx.data} tz={tz} noteId={id} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
                   paperRef={meta.paper_ref} onPaperRef={(v) => setMeta((m) => ({ ...m, paper_ref: v }))} onAddTag={(n) => void addManualTag(id, n).then(() => { void ctx.refetch(); refresh() }).catch(() => toast('That isn’t a valid tag name.', { kind: 'error' }))}
-                  onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} />
+                  onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} onUpdateTask={onUpdateTask} />
               </div>
             )}
           </div>
@@ -212,9 +216,9 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
       {/* context panel: right column on desktop */}
       {desktop && persisted && (
         <aside aria-label="Note context" className="w-72 shrink-0 overflow-y-auto border-l border-line bg-panel p-5">
-          <ContextPanel ctx={ctx.data} tz={tz} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
+          <ContextPanel ctx={ctx.data} tz={tz} noteId={id} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
             paperRef={meta.paper_ref} onPaperRef={(v) => setMeta((m) => ({ ...m, paper_ref: v }))} onAddTag={(n) => void addManualTag(id, n).then(() => { void ctx.refetch(); refresh() }).catch(() => toast('That isn’t a valid tag name.', { kind: 'error' }))}
-            onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} />
+            onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} onUpdateTask={onUpdateTask} />
         </aside>
       )}
 
