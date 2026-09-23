@@ -35,3 +35,12 @@ export async function updateHabit(id: string, patch: Partial<HabitInput> & { arc
   const { error } = await supabase.from('habits').update(patch).eq('id', id)
   if (error) throw toError(error)
 }
+
+export interface HabitLog { habit_id: string; day: string; value: number }
+
+/** Every habit's logged days from `from` ('YYYY-MM-DD') on — feeds the heatmaps and stats. */
+export async function listHabitLogs(from: string): Promise<HabitLog[]> {
+  const { data, error } = await supabase.from('habit_logs').select('habit_id,day,value').gte('day', from).order('day')
+  if (error) throw toError(error)
+  return (data as HabitLog[]) ?? []
+}

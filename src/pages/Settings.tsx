@@ -20,7 +20,7 @@ function Card({ title, children, id }: { title: string; children: React.ReactNod
 
 export function Settings() {
   const { user } = useAuth()
-  const { theme, timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, update } = useSettings()
+  const { theme, timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, update } = useSettings()
   const { toast } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
@@ -119,6 +119,17 @@ export function Settings() {
               </label>
             </div>
           )}
+        </Card>
+
+        <Card title="Habits">
+          <label className="flex items-center gap-2.5 text-sm">
+            <input
+              type="checkbox" checked={showStreaks}
+              onChange={(e) => void update({ show_streaks: e.target.checked }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+              className="size-4 accent-[var(--accent)]"
+            />
+            Show streaks 🔥
+          </label>
         </Card>
 
         <Card title="Export your notes" id="export">

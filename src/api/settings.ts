@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase'
 import type { Settings, ThemePref } from '@/types/db'
 import { toError } from './errors'
 
-const SETTINGS_COLUMNS = 'user_id,timezone,theme,reminders_enabled,reminder_lead_minutes,reminder_morning_time'
+const SETTINGS_COLUMNS = 'user_id,timezone,theme,reminders_enabled,reminder_lead_minutes,reminder_morning_time,show_streaks'
 
 export async function fetchSettings(): Promise<Settings | null> {
   const { data, error } = await supabase.from('settings').select(SETTINGS_COLUMNS).maybeSingle()
@@ -16,6 +16,7 @@ export interface SettingsPatch {
   reminders_enabled?: boolean
   reminder_lead_minutes?: number
   reminder_morning_time?: string
+  show_streaks?: boolean
 }
 
 export async function saveSettings(patch: SettingsPatch): Promise<Settings> {

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { bumpHabit, habitsForDay } from '@/api/habits'
+import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import { formatDueDate } from '@/lib/dates'
 import type { HabitDay } from '@/types/db'
@@ -9,6 +10,7 @@ import type { HabitDay } from '@/types/db'
 export function HabitStrip({ day, today, tz }: { day: string; today: string; tz: string }) {
   const qc = useQueryClient()
   const { toast } = useToast()
+  const { showStreaks } = useSettings()
   const key = ['habits', 'day', day]
   const q = useQuery({ queryKey: key, queryFn: () => habitsForDay(day), enabled: day <= today })
 
@@ -51,7 +53,7 @@ export function HabitStrip({ day, today, tz }: { day: string; today: string; tz:
               {!counted && <span aria-hidden>{done ? '✓' : '○'}</span>}
               <span>{h.name}</span>
               {counted && <span className={`tabular-nums text-xs ${done ? '' : 'text-muted'}`}>{h.value}/{h.target}</span>}
-              {h.streak >= 2 && <span className={`text-xs tabular-nums ${done ? '' : 'text-important'}`} title={`${h.streak}-day streak`}>🔥{h.streak}</span>}
+              {showStreaks && h.streak >= 2 && <span className={`text-xs tabular-nums ${done ? '' : 'text-important'}`} title={`${h.streak}-day streak`}>🔥{h.streak}</span>}
             </button>
           </div>
         )

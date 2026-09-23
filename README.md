@@ -25,7 +25,8 @@ saved searches, an overdue/due-today count on the Tasks dock icon, optional due-
 month calendar on Home (ring = notes written that day, dots = scheduled/tasks/overdue/done; pick a day to see its
 notes and agenda, or add a task/appointment to it), and a daily journal (one page per day — ✎ Journal in the
 day agenda, or press J; `type:journal` finds them all), and habits (yes/no or daily counts, every day or chosen weekdays; tap chips
-under the capture box, streaks shown, manage at /habits).
+under the capture box; heatmap, streaks (can be turned off in Settings) and 30-day rate at /habits). The Tasks page
+has tabs with counts, task search, and delete for any task (a task from a note also loses its line in that note).
 
 ---
 
@@ -202,6 +203,7 @@ Files in `supabase/migrations/`, in order:
 20260923100100_mneme_17_calendar.sql     calendar_month() RPC — per-day marks for the Home calendar
 20260923100200_mneme_18_journal.sql      daily journal: note_type 'journal' + journal_date, open_journal() RPC
 20260924100000_mneme_19_habits.sql       habits + habit_logs (yes/no or counts, weekday schedules), bump_habit/habits_for_day RPCs
+20260924100100_mneme_20_habit_marks_task_delete.sql  habit calendar marks, settings.show_streaks, delete_task/clear_completed_tasks
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.

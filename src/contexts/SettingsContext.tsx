@@ -15,13 +15,14 @@ interface SettingsValue {
   remindersEnabled: boolean
   reminderLeadMinutes: number
   reminderMorningTime: string
+  showStreaks: boolean
   ready: boolean
   update: (patch: SettingsPatch) => Promise<void>
 }
 
 const SettingsContext = createContext<SettingsValue>({
   timezone: 'UTC', theme: 'amethyst', activeTheme: 'amethyst',
-  remindersEnabled: false, reminderLeadMinutes: 60, reminderMorningTime: '09:00',
+  remindersEnabled: false, reminderLeadMinutes: 60, reminderMorningTime: '09:00', showStreaks: true,
   ready: false, update: async () => {},
 })
 const THEME_KEY = 'mneme-theme'
@@ -46,6 +47,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const remindersEnabled = q.data?.reminders_enabled ?? false
   const reminderLeadMinutes = q.data?.reminder_lead_minutes ?? 60
   const reminderMorningTime = q.data?.reminder_morning_time ?? '09:00'
+  const showStreaks = q.data?.show_streaks ?? true
 
   const [dark, setDark] = useState(prefersDark)
   useEffect(() => {
@@ -59,8 +61,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback(async (patch: SettingsPatch) => {
     if (patch.theme) { setLocal(patch.theme); applyTheme(patch.theme) } // instant, even before the save returns
-    const saved = await saveSettings(patch)
-    qc.setQueryData<Settings | null>(['settings', user?.id], saved)
+    // every toggle reflects the change at once; put it back if the save fails
+    const key = ['settings', user?.id]
+    const before = qc.getQueryData<Settings | null>(key)
+    if (before) qc.setQueryData<Settings | null>(key, { ...before, ...patch })
+    try {
+      qc.setQueryData<Settings | null>(key, await saveSettings(patch))
+    } catch (e) {
+      qc.setQueryData<Settings | null>(key, before)
+      throw e
+    }
   }, [qc, user?.id])
 
   // First login: remember the browser's timezone so note IDs / "today" use the user's day.
@@ -75,10 +85,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       timezone, theme, activeTheme: resolveTheme(theme, dark),
-      remindersEnabled, reminderLeadMinutes, reminderMorningTime,
+      remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks,
       ready: !user || q.isSuccess, update,
     }),
-    [timezone, theme, dark, remindersEnabled, reminderLeadMinutes, reminderMorningTime, user, q.isSuccess, update],
+    [timezone, theme, dark, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, user, q.isSuccess, update],
   )
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

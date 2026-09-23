@@ -26,14 +26,32 @@ export async function updateTask(
   if (error) throw toError(error)
 }
 
-export async function deleteStandaloneTask(id: string): Promise<void> {
-  const { error } = await supabase.from('tasks').delete().eq('id', id).eq('source', 'standalone')
-  if (error) throw toError(error)
-}
-
 /** Open, due-today-or-earlier task count — powers the Tasks dock badge. */
 export async function dueTaskCount(): Promise<number> {
   const { data, error } = await supabase.rpc('due_task_count')
   if (error) throw toError(error)
   return Number(data ?? 0)
+}
+
+/** Deletes any task. A task that came from a note has its "- [ ]" line removed from that note. */
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_task', { p_task_id: id })
+  if (error) throw toError(error)
+}
+
+/** Deletes every completed task (see deleteTask); returns how many. */
+export async function clearCompletedTasks(): Promise<number> {
+  const { data, error } = await supabase.rpc('clear_completed_tasks')
+  if (error) throw toError(error)
+  return Number(data ?? 0)
+}
+
+/** Title search across all tasks, open ones first. */
+export async function searchTasks(q: string, limit = 100): Promise<TaskItem[]> {
+  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+  const { data, error } = await supabase
+    .from('tasks_active').select('*').ilike('title', pattern)
+    .order('status', { ascending: false }).order('due_date', { ascending: true, nullsFirst: false }).limit(limit)
+  if (error) throw toError(error)
+  return (data as TaskItem[]) ?? []
 }

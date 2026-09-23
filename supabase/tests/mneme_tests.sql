@@ -826,5 +826,50 @@ begin
   perform t.logout();
 end $$;
 
+-- ============================================= 14. habit marks / task delete ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; t1 uuid; t2 uuid; s1 uuid; today date; r record; c text; k int;
+begin
+  perform t.login(a);
+  update mneme.settings set timezone = 'UTC';
+  select (now() at time zone 'UTC')::date into today;
+  delete from mneme.habits;
+  insert into mneme.habits (name, created_at) values ('Read', now() - interval '5 days');
+  insert into mneme.habits (name, target, created_at) values ('Water', 8, now() - interval '5 days');
+  perform mneme.bump_habit(id, today - 1, 1) from mneme.habits where name = 'Read';
+  perform mneme.bump_habit(id, today - 1, 8) from mneme.habits where name = 'Water';
+  perform mneme.bump_habit(id, today - 2, 1) from mneme.habits where name = 'Read';
+  select * into r from mneme.calendar_month(today - 3, today + 3) where day = today - 1;
+  perform t.ok(r.habits_due = 2 and r.habits_met = 2, 'calendar: all habits met yesterday');
+  select * into r from mneme.calendar_month(today - 3, today + 3) where day = today - 2;
+  perform t.ok(r.habits_due = 2 and r.habits_met = 1, 'calendar: partly met two days ago');
+  perform t.ok(not exists (select 1 from mneme.calendar_month(today - 3, today + 3) where day > today and habits_due > 0),
+               'calendar: no habit marks on future days');
+  perform t.ok((select show_streaks from mneme.settings), 'streaks are shown by default');
+
+  -- deleting tasks
+  insert into mneme.notes (content) values (E'plan\n- [x] book flights\n- [ ] pack\n- [x] visa') returning id into n1;
+  select id into t1 from mneme.tasks where note_id = n1 and title = 'book flights';
+  select id into t2 from mneme.tasks where note_id = n1 and title = 'pack';
+  perform mneme.delete_task(t1);
+  select content into c from mneme.notes where id = n1;
+  perform t.ok(c = E'plan\n- [ ] pack\n- [x] visa', 'deleting a note task removes exactly its line from the note');
+  perform t.ok(not exists (select 1 from mneme.tasks_active where id = t1), 'the deleted note task is gone from lists');
+  perform t.ok(exists (select 1 from mneme.note_revisions where note_id = n1), 'the old note text is kept in history');
+  insert into mneme.tasks (source, title, status) values ('standalone', 'old chore', 'done') returning id into s1;
+  k := mneme.clear_completed_tasks();
+  perform t.ok(k >= 2 and not exists (select 1 from mneme.tasks_active where status = 'done'),
+               'clear_completed_tasks clears every done task (note + standalone)');
+  select content into c from mneme.notes where id = n1;
+  perform t.ok(c = E'plan\n- [ ] pack', 'open tasks and other text survive clearing');
+  perform t.ok(exists (select 1 from mneme.tasks_active where id = t2 and status = 'open'), 'the open task is untouched');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(t.throws(format('select mneme.delete_task(%L)', t2)), 'B cannot delete A''s task');
+  perform t.logout();
+end $$;
+
 rollback;
 \echo ALL TESTS PASSED

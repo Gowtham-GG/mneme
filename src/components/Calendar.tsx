@@ -10,6 +10,7 @@ const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 function describe(key: string, c: CalendarDay | undefined): string {
   const bits = [formatFullDate(key)]
   if (c?.journal) bits.push('journal')
+  if (c?.habits_due) bits.push(`habits ${c.habits_met} of ${c.habits_due}`)
   if (c?.notes) bits.push(`${c.notes} note${c.notes === 1 ? '' : 's'} written`)
   if (c?.scheduled) bits.push(`${c.scheduled} scheduled`)
   const plain = (c?.open_tasks ?? 0) - (c?.scheduled ?? 0)
@@ -20,9 +21,10 @@ function describe(key: string, c: CalendarDay | undefined): string {
 
 /**
  * Month calendar. A ring round a date = notes were written that day; a corner
- * dot = that day has a journal page; dots
+ * dot = that day has a journal page (top right) / every due habit was met
+ * (top left); dots
  * under it = something due: amber for scheduled items (timed tasks) or
- * meeting notes, teal for open tasks (red once the day has passed), grey
+ * meeting notes, blue for open tasks (red once the day has passed), grey
  * when that day's tasks are all done.
  */
 export function Calendar({ today, selected, onSelect }: { today: string; selected: string; onSelect: (key: string) => void }) {
@@ -88,7 +90,7 @@ export function Calendar({ today, selected, onSelect }: { today: string; selecte
           const plainOpen = (c?.open_tasks ?? 0) - (c?.scheduled ?? 0)
           const dots: string[] = []
           if (c?.scheduled || c?.meetings) dots.push('bg-important')
-          if (plainOpen > 0) dots.push(key < today ? 'bg-danger' : 'bg-task')
+          if (plainOpen > 0) dots.push(key < today ? 'bg-danger' : 'bg-question')
           if (!c?.open_tasks && c?.done_tasks) dots.push('bg-faint')
           return (
             <div key={key} role="gridcell" className="flex justify-center">
@@ -106,6 +108,7 @@ export function Calendar({ today, selected, onSelect }: { today: string; selecte
                   c?.notes && !isSel ? 'ring-[1.5px] ring-accent/70 ring-inset' : '',
                 ].join(' ')}
               >
+                {!!c?.habits_due && c.habits_met === c.habits_due && <span aria-hidden className={`absolute left-1 top-1 size-1.5 rounded-full ${isSel ? 'bg-on-accent' : 'bg-task'}`} />}
                 {c?.journal && <span aria-hidden className={`absolute right-1 top-1 size-1.5 rounded-full ${isSel ? 'bg-on-accent' : 'bg-accent'}`} />}
                 <span className="leading-none">{Number(key.slice(8))}</span>
                 <span className="absolute bottom-1 flex h-1 gap-0.5" aria-hidden>
@@ -117,13 +120,10 @@ export function Calendar({ today, selected, onSelect }: { today: string; selecte
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-faint" aria-hidden>
-        <span className="flex items-center gap-1"><span className="size-3 rounded-full ring-[1.5px] ring-accent/70 ring-inset" />Notes</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-accent" />Journal</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-important" />Scheduled</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-task" />Tasks</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-danger" />Overdue</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-faint" />Done</span>
+      <div className="mt-2 flex flex-wrap justify-center gap-x-2.5 gap-y-1 text-[10px] text-faint" aria-hidden>
+        {([['ring-[1.5px] ring-accent/70 ring-inset size-2.5', 'Notes'], ['bg-accent', 'Journal'], ['bg-task', 'Habits'], ['bg-important', 'Scheduled'], ['bg-question', 'Tasks'], ['bg-danger', 'Overdue']] as const).map(([cls, label]) => (
+          <span key={label} className="flex items-center gap-1"><span className={`rounded-full ${cls.includes('size') ? '' : 'size-1.5'} ${cls}`} />{label}</span>
+        ))}
       </div>
     </div>
   )

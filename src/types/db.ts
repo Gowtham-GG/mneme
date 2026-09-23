@@ -87,6 +87,8 @@ export interface CalendarDay {
   open_tasks: number
   done_tasks: number
   journal: boolean
+  habits_due: number
+  habits_met: number
 }
 
 export interface Habit {
@@ -171,4 +173,5 @@ export interface Settings {
   reminders_enabled: boolean
   reminder_lead_minutes: number
   reminder_morning_time: string
+  show_streaks: boolean
 }

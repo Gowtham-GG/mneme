@@ -158,8 +158,21 @@ describe('derived data through the API', () => {
     await tasks.updateTask(t.id, { due_date: '2020-01-01' })
     expect((await tasks.listTasks('today')).some((x) => x.id === t.id)).toBe(true) // overdue lands in "today"
     await tasks.setTaskDone(t.id, true)
-    await tasks.deleteStandaloneTask(t.id)
+    await tasks.deleteTask(t.id)
     expect((await tasks.listTasks('completed')).some((x) => x.id === t.id)).toBe(false)
+  })
+
+  it('tasks: search, delete a note task (removes its line), clear completed', async () => {
+    as(A)
+    const n = await notes.insertNote({ id: crypto.randomUUID(), title: null, content: 'trip\n- [ ] pack bags\n- [x] book hotel', created_at: new Date().toISOString() })
+    const found = await tasks.searchTasks('hotel')
+    expect(found.map((x) => x.title)).toContain('book hotel')
+    expect(await tasks.searchTasks('100%_nothing')).toEqual([])   // % and _ are literal, not wildcards
+    await tasks.clearCompletedTasks()
+    expect((await notes.fetchNote(n.id))!.content).toBe('trip\n- [ ] pack bags')
+    const pack = (await tasks.searchTasks('pack bags'))[0]
+    await tasks.deleteTask(pack.id)
+    expect((await notes.fetchNote(n.id))!.content).toBe('trip')
   })
 })
 
