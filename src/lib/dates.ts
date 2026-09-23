@@ -144,3 +144,25 @@ export function formatTimeOfDay(hhmm: string): string {
   const h12 = h % 12 === 0 ? 12 : h % 12
   return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2, '0')}${period}`
 }
+
+/** The 42 day keys (6 Monday-first weeks) of the month grid containing `monthKey` ('YYYY-MM-DD', any day). */
+export function monthGrid(monthKey: string): string[] {
+  const [y, m] = monthKey.split('-').map(Number)
+  const first = `${y}-${String(m).padStart(2, '0')}-01`
+  const dow = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7 // Monday = 0
+  const start = addDays(first, -dow)
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i))
+}
+
+/** First day of the month `n` months after the one containing `key`. */
+export function addMonths(key: string, n: number): string {
+  const [y, m] = key.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1 + n, 1))
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-01`
+}
+
+/** "September 2026" */
+export function formatMonth(key: string): string {
+  const [y, m] = key.split('-').map(Number)
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(y, m - 1, 1)))
+}

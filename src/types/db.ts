@@ -73,6 +73,16 @@ export interface TaskItem {
   note_title: string | null
 }
 
+/** Row shape of the calendar_month() RPC. */
+export interface CalendarDay {
+  day: string
+  notes: number
+  meetings: number
+  scheduled: number
+  open_tasks: number
+  done_tasks: number
+}
+
 export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed'
 
 export interface LinkedNote {

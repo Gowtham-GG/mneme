@@ -13,8 +13,8 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
   if (error) throw toError(error)
 }
 
-export async function addStandaloneTask(title: string, due_date: string | null = null): Promise<void> {
-  const { error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim(), due_date })
+export async function addStandaloneTask(title: string, due_date: string | null = null, due_time: string | null = null): Promise<void> {
+  const { error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim(), due_date, due_time: due_date ? due_time : null })
   if (error) throw toError(error)
 }
 

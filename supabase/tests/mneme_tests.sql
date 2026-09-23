@@ -606,7 +606,7 @@ begin
   perform t.ok((select reminder_sent_at is null from mneme.tasks where id = tid), 'changing due_time resets reminder_sent_at');
   perform t.logout();
 
-  -- a date-only task follows the fixed morning time, not a (now-cleared) due_time
+  -- a date-only task never gets a one-off "due soon" email (the daily digest, section 10, covers it)
   -- (clearing due_time is an ordinary user edit -- done as the task's owner, not as service_role,
   -- which only has execute on the two functions above, no direct table grants)
   perform t.login(a);
@@ -614,8 +614,7 @@ begin
   perform t.logout();
   execute 'set local role service_role';
   select count(*) into cnt from mneme.tasks_due_for_reminder() where task_id = tid;
-  perform t.ok(cnt = (case when (now() at time zone 'UTC') >= (today + time '09:00') then 1 else 0 end),
-               'a date-only task is judged against reminder_morning_time');
+  perform t.ok(cnt = 0, 'a date-only task is left to the daily digest, not tasks_due_for_reminder');
 
   -- an opted-out user's own due task never appears (reminders_enabled defaults to false)
   execute 'reset role';
@@ -627,6 +626,105 @@ begin
   select count(*) into cnt from mneme.tasks_due_for_reminder() where user_id = 'bbbbbbbb-0000-0000-0000-000000000002';
   perform t.ok(cnt = 0, 'an opted-out user (default reminders_enabled = false) is never included even with a due task');
   execute 'reset role';
+end $$;
+
+-- ============================================= 10. daily digest (service_role only) ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+        t_over uuid; t_today uuid; t_soon uuid; t_far uuid; t_done uuid; t_sent uuid; today date; cnt bigint;
+begin
+  perform t.login(a);
+  delete from mneme.tasks where user_id = a;
+  -- morning time 00:00 so the digest is always "due" whatever time the suite runs
+  update mneme.settings set timezone = 'UTC', reminders_enabled = true, reminder_morning_time = '00:00', last_digest_on = null;
+  select (now() at time zone 'UTC')::date into today;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Overdue thing', today - 3) returning id into t_over;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Today thing', today) returning id into t_today;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Soon thing', today + 2) returning id into t_soon;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Far thing', today + 30) returning id into t_far;
+  insert into mneme.tasks (source, title, due_date, status) values ('standalone', 'Done thing', today - 1, 'done') returning id into t_done;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Already reminded', today - 1) returning id into t_sent;
+  perform t.logout();
+
+  perform t.login(a);
+  perform t.ok(t.throws('select * from mneme.digests_due()'), 'authenticated cannot call digests_due');
+  perform t.ok(t.throws('select mneme.mark_digest_sent(array[]::uuid[])'), 'authenticated cannot call mark_digest_sent');
+  perform t.logout();
+  perform t.anon();
+  perform t.ok(t.throws('select * from mneme.digests_due()'), 'anon cannot call digests_due either');
+  perform t.logout();
+
+  execute 'set local role service_role';
+  perform mneme.mark_reminder_sent(array[t_sent]);
+  perform t.ok((select bucket from mneme.digests_due() where task_id = t_over) = 'overdue', 'an overdue open task is in the digest as overdue');
+  perform t.ok((select bucket from mneme.digests_due() where task_id = t_today) = 'today', 'a task due today is in the digest as today');
+  perform t.ok((select bucket from mneme.digests_due() where task_id = t_soon) = 'upcoming', 'a task due in 2 days is in the digest as upcoming');
+  perform t.ok(not exists (select 1 from mneme.digests_due() where task_id = t_far), 'a task beyond the upcoming window is left out');
+  perform t.ok(not exists (select 1 from mneme.digests_due() where task_id = t_done), 'a completed task is never in the digest');
+  perform t.ok(exists (select 1 from mneme.digests_due() where task_id = t_sent),
+               'an unfinished task stays in the digest even after its one-off reminder was sent');
+  perform t.ok(exists (select 1 from mneme.digests_due(60) where task_id = t_far), 'p_upcoming_days widens the window');
+
+  perform mneme.mark_digest_sent(array[a]);
+  select count(*) into cnt from mneme.digests_due() where user_id = a;
+  perform t.ok(cnt = 0, 'mark_digest_sent: no second digest the same local day');
+  execute 'reset role';
+
+  -- simulate the next day: yesterday's digest date makes the same tasks come back
+  update mneme.settings set last_digest_on = today - 1 where user_id = a;
+  execute 'set local role service_role';
+  perform t.ok(exists (select 1 from mneme.digests_due() where task_id = t_over), 'an unfinished task is repeated in the next day''s digest');
+  execute 'reset role';
+
+  -- not before the configured time
+  update mneme.settings set reminder_morning_time = '23:59:59.999' where user_id = a;
+  execute 'set local role service_role';
+  select count(*) into cnt from mneme.digests_due() where user_id = a;
+  perform t.ok(cnt = 0, 'no digest before reminder_morning_time');
+  execute 'reset role';
+
+  -- a due user with nothing to report still gets one row (task_id null) so it can be marked
+  update mneme.settings set reminder_morning_time = '00:00' where user_id = a;
+  delete from mneme.tasks where user_id = a;
+  execute 'set local role service_role';
+  select count(*) into cnt from mneme.digests_due() where user_id = a and task_id is null;
+  perform t.ok(cnt = 1, 'a due user with no tasks gets a single placeholder row');
+  execute 'reset role';
+end $$;
+
+-- ================================================================ 11. calendar ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; r record;
+begin
+  perform t.login(a);
+  delete from mneme.notes; delete from mneme.tasks where user_id = a;
+  update mneme.settings set timezone = 'Asia/Kolkata';
+  -- 20:00 UTC on the 9th is 01:30 on the 10th in Kolkata: must land on the 10th
+  insert into mneme.notes (content, created_at) values ('late night', '2026-03-09 20:00+00') returning id into n1;
+  insert into mneme.notes (content, created_at, note_type) values ('standup', '2026-03-10 05:00+00', 'meeting');
+  insert into mneme.notes (content, created_at, deleted_at) values ('binned', '2026-03-10 06:00+00', now());
+  insert into mneme.tasks (source, title, due_date, due_time) values ('standalone', 'Dentist', '2026-03-10', '15:00');
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Pay rent', '2026-03-10');
+  insert into mneme.tasks (source, title, due_date, status) values ('standalone', 'Filed', '2026-03-12', 'done');
+
+  select * into r from mneme.calendar_month('2026-03-01', '2026-03-31') where day = '2026-03-10';
+  perform t.ok(r.notes = 2, 'calendar buckets notes by the user''s local day and ignores trash');
+  perform t.ok(r.meetings = 1, 'calendar counts meeting notes');
+  perform t.ok(r.scheduled = 1 and r.open_tasks = 2, 'calendar counts timed (scheduled) and all open tasks');
+  perform t.ok(not exists (select 1 from mneme.calendar_month('2026-03-01', '2026-03-31') where day = '2026-03-09'),
+               'no mark on a day with nothing local to it');
+  perform t.ok((select done_tasks from mneme.calendar_month('2026-03-01', '2026-03-31') where day = '2026-03-12') = 1,
+               'a day with only done tasks is marked done');
+  perform t.ok(t.throws($q$ select * from mneme.calendar_month('2026-01-01', '2026-12-31') $q$), 'calendar rejects ranges over 62 days');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(not exists (select 1 from mneme.calendar_month('2026-03-01', '2026-03-31')), 'calendar never shows another user''s notes or tasks');
+  perform t.logout();
+  perform t.anon();
+  perform t.ok(t.throws($q$ select * from mneme.calendar_month('2026-03-01', '2026-03-31') $q$), 'anon cannot call calendar_month');
+  perform t.logout();
 end $$;
 
 rollback;

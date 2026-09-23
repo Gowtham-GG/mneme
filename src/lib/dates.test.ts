@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, dayKey, formatTimeOfDay, presetRange, startOfDayISO, taskDueStatus, todayKey, zonedMidnight } from './dates'
+import { addDays, addMonths, dayKey, formatMonth, formatTimeOfDay, monthGrid, presetRange, startOfDayISO, taskDueStatus, todayKey, zonedMidnight } from './dates'
 
 describe('dates (timezone aware)', () => {
   it('dayKey uses the given timezone, not the machine', () => {
@@ -51,5 +51,25 @@ describe('dates (timezone aware)', () => {
     expect(formatTimeOfDay('00:00')).toBe('12am')
     expect(formatTimeOfDay('13:30')).toBe('1:30pm')
     expect(formatTimeOfDay('23:05')).toBe('11:05pm')
+  })
+})
+
+describe('month grid', () => {
+  it('starts on the Monday on/before the 1st and spans 6 weeks', () => {
+    const g = monthGrid('2026-09-23') // 1 Sep 2026 is a Tuesday
+    expect(g).toHaveLength(42)
+    expect(g[0]).toBe('2026-08-31')
+    expect(g[1]).toBe('2026-09-01')
+    expect(g[41]).toBe('2026-10-11')
+  })
+  it('handles a month starting on Monday', () => {
+    expect(monthGrid('2026-06-10')[0]).toBe('2026-06-01')
+  })
+  it('adds months across year boundaries', () => {
+    expect(addMonths('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addMonths('2026-01-15', -1)).toBe('2025-12-01')
+  })
+  it('formats a month heading', () => {
+    expect(formatMonth('2026-09-01')).toBe('September 2026')
   })
 })

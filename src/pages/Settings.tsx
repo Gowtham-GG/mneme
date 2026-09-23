@@ -85,8 +85,9 @@ export function Settings() {
 
         <Card title="Reminders">
           <p className="mb-3 text-sm text-muted">
-            Get an email at your login address when a task is due. A task with a specific time is emailed a bit
-            beforehand; a task with only a date is emailed at a fixed time that morning. Off by default.
+            Get a daily email at your login address listing every unfinished overdue or due-today task (repeated each
+            day until it’s done) plus what’s coming up in the next 7 days. Tasks with a specific time also get a heads-up
+            email a bit beforehand. Off by default.
           </p>
           <label className="mb-3 flex items-center gap-2.5 text-sm">
             <input
@@ -109,7 +110,7 @@ export function Settings() {
                 </select>
               </label>
               <label className="flex items-center gap-2">
-                Morning-of time for date-only tasks
+                Daily email time
                 <input
                   type="time" value={reminderMorningTime.slice(0, 5)}
                   onChange={(e) => void update({ reminder_morning_time: e.target.value }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}

@@ -21,7 +21,9 @@ though it is designed for personal use.
 **Since first launch, also added:** tag rename & merge (Index/tag page), directly editable task due date/time/priority
 (Tasks view and a note's Tasks panel), related-note suggestions (tag overlap + title similarity), multi-select bulk
 actions on the Notes/Archive/Trash/Search lists (star, tag, archive, trash, restore, delete forever), named/pinned
-saved searches, an overdue/due-today count on the Tasks dock icon, and optional due-date reminder emails (§15).
+saved searches, an overdue/due-today count on the Tasks dock icon, optional due-date reminder emails (§15), and a
+month calendar on Home (ring = notes written that day, dots = scheduled/tasks/overdue/done; pick a day to see its
+notes and agenda, or add a task/appointment to it).
 
 ---
 
@@ -194,6 +196,8 @@ Files in `supabase/migrations/`, in order:
 20260922100400_mneme_13_bulk_tags.sql    bulk_add_tag() RPC for the Notes-list multi-select bar
 20260922100500_mneme_14_reminders.sql    reminder settings + the two service_role-only reminder RPCs
 20260922100600_mneme_15_reminders_cron.sql  cron schedule for reminders — run MANUALLY, see 5.6 below
+20260923100000_mneme_16_daily_digest.sql daily reminder digest (overdue/today repeated daily + upcoming 7 days)
+20260923100100_mneme_17_calendar.sql     calendar_month() RPC — per-day marks for the Home calendar
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.
@@ -251,7 +255,7 @@ Off until you do this; the app works fully without it (Settings → Reminders ju
 4. Open `supabase/migrations/20260922100600_mneme_15_reminders_cron.sql`, replace `<project-ref>` and
    `<mneme-reminder-function-secret>` with your real values, and run it **once** in the SQL editor (this file is
    intentionally excluded from `db push` / the numbered list above — see its own header comment).
-5. In the app, Settings → Reminders → turn it on, set a lead time and a morning time, and give a task a due date.
+5. In the app, Settings → Reminders → turn it on, set a lead time and a daily email time, and give a task a due date.
 
 **Resend's free sandbox sender caveat**: `onboarding@resend.dev` can only deliver to the email address the Resend
 account itself was created with, until you verify your own domain — the exact same limitation Argus's spending-report
@@ -418,14 +422,18 @@ An email at your login address when a task's due date/time arrives. Setup is man
 it — because it's the one place Mneme steps outside "just Postgres + RLS": a single Edge Function
 (`supabase/functions/task-reminders`), woken every 10 minutes by `pg_cron`.
 
-* **Timing.** A task with a specific due **time** is emailed `reminder_lead_minutes` before it (default 60). A task
-  with only a due **date** is emailed at a fixed `reminder_morning_time` (default 09:00) in your timezone. Both are
-  editable in Settings → Reminders, alongside the on/off toggle.
-* **One email per due task**, not a recurring nag — `tasks.reminder_sent_at` dedupes. Changing a task's due date/time,
-  or reopening a completed task, resets it, so a reschedule gets a fresh reminder.
-* **Multiple tasks due at once are one email**, not one per task.
-* **Privilege boundary.** The two functions the Edge Function calls — `tasks_due_for_reminder()` (reads across every
-  user, including their login email) and `mark_reminder_sent()` — are granted **only to `service_role`**, not even
+* **Daily digest.** Once a day at `reminder_morning_time` (default 09:00, your timezone) you get one email listing
+  every **unfinished** task that is overdue or due today — repeated every day until you mark it done, even if it was
+  already reminded — plus your **upcoming** tasks for the next 7 days. `settings.last_digest_on` makes it once per
+  local day; a day with nothing to list sends nothing.
+* **Due-soon heads-up.** A task with a specific due **time** is additionally emailed `reminder_lead_minutes` before it
+  (default 60), once — `tasks.reminder_sent_at` dedupes, and changing its due date/time or reopening it resets that.
+  If the digest goes out in the same run, the task is covered by the digest instead of a second email.
+  Both times are editable in Settings → Reminders, alongside the on/off toggle.
+* **Multiple tasks are one email**, not one per task.
+* **Privilege boundary.** The functions the Edge Function calls — `tasks_due_for_reminder()` / `digests_due()` (read
+  across every user, including their login email) and `mark_reminder_sent()` / `mark_digest_sent()` — are granted
+  **only to `service_role`**, not even
   `authenticated`. No client, including Mneme's own frontend, can ever call them; only the deployed Edge Function
   (holding the service-role key) can.
 * **Free-tier email limits.** Sent via [Resend](https://resend.com), the same provider Argus already uses — see the
