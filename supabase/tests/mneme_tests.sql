@@ -766,5 +766,65 @@ begin
   perform t.logout();
 end $$;
 
+-- ================================================================== 13. habits ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        h_run uuid; h_water uuid; h_gym uuid; today date; v int; r record; mon date;
+begin
+  perform t.login(a);
+  update mneme.settings set timezone = 'UTC';
+  select (now() at time zone 'UTC')::date into today;
+  insert into mneme.habits (name, created_at) values ('Run', now() - interval '10 days') returning id into h_run;
+  insert into mneme.habits (name, target, unit, created_at) values ('Water', 8, 'glasses', now() - interval '10 days') returning id into h_water;
+
+  -- counts: atomic +/-, never below zero, zero removes the row
+  perform mneme.bump_habit(h_water, today, 1); perform mneme.bump_habit(h_water, today, 1);
+  v := mneme.bump_habit(h_water, today, 1);
+  perform t.ok(v = 3, 'bump_habit adds up taps');
+  v := mneme.bump_habit(h_water, today, -1);
+  perform t.ok(v = 2, 'bump_habit subtracts');
+  v := mneme.bump_habit(h_water, today, -5);
+  perform t.ok(v = 0 and not exists (select 1 from mneme.habit_logs where habit_id = h_water and day = today),
+               'going to zero deletes the log row');
+  v := mneme.bump_habit(h_water, today, -1);
+  perform t.ok(v = 0, 'minus on nothing stays at zero');
+  perform t.ok(t.throws(format('select mneme.bump_habit(%L, %L::date, 1)', h_run, today + 3)), 'cannot log a future day');
+
+  -- streak: 3 days in a row before today, today not done yet -> streak 3 (today does not break it)
+  perform mneme.bump_habit(h_run, today - 1, 1); perform mneme.bump_habit(h_run, today - 2, 1); perform mneme.bump_habit(h_run, today - 3, 1);
+  select * into r from mneme.habits_for_day(today) where id = h_run;
+  perform t.ok(r.streak = 3 and r.value = 0 and r.due, 'streak counts consecutive days; today pending does not break it');
+  perform mneme.bump_habit(h_run, today, 1);
+  perform t.ok((select streak from mneme.habits_for_day(today) where id = h_run) = 4, 'doing it today extends the streak');
+  perform mneme.bump_habit(h_run, today - 2, -1);   -- a gap two days ago
+  perform t.ok((select streak from mneme.habits_for_day(today) where id = h_run) = 2, 'a missed due day resets the streak');
+
+  -- count habits only count days that reached the target
+  perform mneme.bump_habit(h_water, today - 1, 8); perform mneme.bump_habit(h_water, today - 2, 5);
+  perform t.ok((select streak from mneme.habits_for_day(today) where id = h_water) = 1, 'a count below target is not a streak day');
+
+  -- weekdays: a Mon/Wed/Fri habit is not due on other days, and those days never break its streak
+  mon := today - (extract(isodow from today)::int - 1) - 7;   -- Monday of last week
+  insert into mneme.habits (name, days, created_at) values ('Gym', 1 | 4 | 16, (mon - 7)::timestamptz) returning id into h_gym;
+  perform mneme.bump_habit(h_gym, mon, 1); perform mneme.bump_habit(h_gym, mon + 2, 1); perform mneme.bump_habit(h_gym, mon + 4, 1);
+  perform t.ok(not (select due from mneme.habits_for_day(mon + 1) where id = h_gym), 'a Mon/Wed/Fri habit is not due on Tuesday');
+  perform t.ok((select streak from mneme.habits_for_day(mon + 6) where id = h_gym) = 3, 'off days (Tue/Thu/weekend) do not break a weekday streak');
+
+  -- created later -> hidden on earlier days
+  perform t.ok(not exists (select 1 from mneme.habits_for_day(today - 30) where id = h_run), 'a habit is not listed before it existed');
+  perform t.logout();
+
+  -- isolation
+  perform t.login(b);
+  perform t.ok(not exists (select 1 from mneme.habits_for_day(today)), 'B sees none of A''s habits');
+  perform t.ok(t.throws(format('select mneme.bump_habit(%L, %L::date, 1)', h_run, today)), 'B cannot log A''s habit');
+  perform t.ok(t.throws(format('insert into mneme.habit_logs (habit_id, day, value) values (%L, %L::date, 1)', h_run, today)),
+               'B cannot write a log row against A''s habit directly');
+  perform t.logout();
+  perform t.anon();
+  perform t.ok(t.throws(format('select * from mneme.habits_for_day(%L::date)', today)), 'anon cannot read habits');
+  perform t.logout();
+end $$;
+
 rollback;
 \echo ALL TESTS PASSED

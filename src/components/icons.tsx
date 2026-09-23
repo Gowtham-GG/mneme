@@ -29,6 +29,7 @@ export const IconCloudOff = mk(<><path d="M9 6.5A6 6 0 0 1 18 11a4 4 0 0 1 3 3.8
 export const IconCommand = mk(<path d="M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9m0 0h6m-6 0v6m6-6V6.5A2.5 2.5 0 1 1 17.5 9H15m0 0v6m0 0h2.5a2.5 2.5 0 1 1-2.5 2.5V15m0 0H9m0 0v2.5A2.5 2.5 0 1 1 6.5 15H9" />)
 export const IconDownload = mk(<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19.5h14" />)
 export const IconCalendar = IconToday
+export const IconHabit = mk(<><path d="M20 12a8 8 0 1 1-2.35-5.65M20 4v4h-4" /><path d="m8.5 12.5 2.5 2.5 4.5-5" /></>)
 export const IconChevron = mk(<path d="m9 5 7 7-7 7" />)
 export const IconSun = mk(<><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>)
 

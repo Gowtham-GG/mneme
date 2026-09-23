@@ -21,6 +21,7 @@ const TagPage = lazy(() => import('@/pages/TagPage').then((m) => ({ default: m.T
 const Inbox = lazy(() => import('@/pages/Inbox').then((m) => ({ default: m.Inbox })))
 const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })))
 const Passwords = lazy(() => import('@/pages/Passwords').then((m) => ({ default: m.Passwords })))
+const Habits = lazy(() => import('@/pages/Habits').then((m) => ({ default: m.Habits })))
 const Share = lazy(() => import('@/pages/Share').then((m) => ({ default: m.Share })))
 
 const Fallback = <div className="p-8 text-sm text-faint">Loading…</div>
@@ -47,6 +48,7 @@ export default function App() {
                     </Route>
                     <Route path="inbox" element={<Inbox />} />
                     <Route path="tasks" element={<Tasks />} />
+                    <Route path="habits" element={<Habits />} />
                     <Route path="search" element={<Search />} />
                     <Route path="tags" element={<TagIndex />} />
                     <Route path="tags/*" element={<TagPage />} />

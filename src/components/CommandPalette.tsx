@@ -32,6 +32,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     { key: 'journal', label: 'Today’s journal', hint: 'J', run: () => { onClose(); void openJournal(todayKey(timezone)) } },
     { key: 'notes', label: 'All notes (timeline)', run: go('/notes') },
     { key: 'tasks', label: 'Tasks', run: go('/tasks') },
+    { key: 'habits', label: 'Habits', run: go('/habits') },
     { key: 'inbox', label: 'Inbox — captures to process', run: go('/inbox') },
     { key: 'search', label: 'Search', hint: '/', run: go('/search') },
     { key: 'passwords', label: 'Passwords (encrypted vault)', run: go('/passwords') },

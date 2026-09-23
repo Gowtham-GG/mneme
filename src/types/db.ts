@@ -89,6 +89,33 @@ export interface CalendarDay {
   journal: boolean
 }
 
+export interface Habit {
+  id: string
+  user_id: string
+  name: string
+  /** 1 = a yes/no habit; more = a daily count to reach */
+  target: number
+  unit: string | null
+  /** weekday bitmask: Monday = 1 … Sunday = 64; 127 = every day */
+  days: number
+  position: number
+  created_at: string
+  archived_at: string | null
+}
+
+/** Row shape of the habits_for_day() RPC. */
+export interface HabitDay {
+  id: string
+  name: string
+  target: number
+  unit: string | null
+  days: number
+  position: number
+  due: boolean
+  value: number
+  streak: number
+}
+
 export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed'
 
 export interface LinkedNote {

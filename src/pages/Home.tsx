@@ -6,6 +6,7 @@ import { inboxCount, listNotes, recentViewed } from '@/api/notes'
 import { addStandaloneTask, listTasks, setTaskDone } from '@/api/tasks'
 import { Calendar } from '@/components/Calendar'
 import { Card } from '@/components/Card'
+import { HabitStrip } from '@/components/HabitStrip'
 import { IconSearch } from '@/components/icons'
 import { NoteRow } from '@/components/NoteRow'
 import { QuickCapture } from '@/components/QuickCapture'
@@ -118,7 +119,8 @@ export function Home() {
         </header>
 
         <QuickCapture />
-        <p className="mb-6 mt-3 text-center text-xs text-faint">Just write. <code>#tag</code> · <code>[[link]]</code> · <code>- [ ] task</code></p>
+        <p className="mb-4 mt-3 text-center text-xs text-faint">Just write. <code>#tag</code> · <code>[[link]]</code> · <code>- [ ] task</code></p>
+        <HabitStrip day={selected} today={day} tz={tz} />
 
         <div className="grid gap-4 lg:grid-cols-3">
           <Card title="Calendar" className="rise min-w-0 lg:col-start-3 lg:row-start-1">

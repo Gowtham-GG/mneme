@@ -12,7 +12,7 @@ import { useOnline } from '@/hooks/useOnline'
 import { Brand } from './Brand'
 import { CommandPalette } from './CommandPalette'
 import { Dialog } from './Dialog'
-import { IconArchive, IconInbox, IconKey, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
+import { IconArchive, IconHabit, IconInbox, IconKey, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
 import { SyncManager } from './SyncManager'
 
 function SignOutIcon() {
@@ -66,6 +66,7 @@ export function Shell() {
   const moreItems: [string, string, React.ReactNode, boolean][] = [
     ['/search', 'Search', <IconSearch key="s" size={18} />, true],
     ['/inbox', inbox.data ? `Inbox · ${inbox.data}` : 'Inbox', <IconInbox key="i" size={18} />, true],
+    ['/habits', 'Habits', <IconHabit key="h" size={18} />, false],
     ['/passwords', 'Passwords', <IconKey key="k" size={18} />, true],
     ['/tags', 'Index', <IconTag key="t" size={18} />, false],
     ['/starred', 'Starred', <IconStar key="st" size={18} />, false],
