@@ -1,8 +1,8 @@
-import { NOTE_TYPES, NOTE_TYPE_LABEL, type NoteType } from '@/types/db'
+import { NOTE_TYPE_LABEL, SETTABLE_NOTE_TYPES, type NoteType } from '@/types/db'
 
-export const TYPE_GLYPH: Record<NoteType, string> = { capture: '○', knowledge: '◆', question: '?', idea: '✦', meeting: '◐', reference: '❡' }
+export const TYPE_GLYPH: Record<NoteType, string> = { capture: '○', knowledge: '◆', question: '?', idea: '✦', meeting: '◐', reference: '❡', journal: '✎' }
 export const TYPE_TONE: Record<NoteType, string> = {
-  capture: 'text-faint', knowledge: 'text-accent', question: 'text-question', idea: 'text-important', meeting: 'text-muted', reference: 'text-muted',
+  capture: 'text-faint', knowledge: 'text-accent', question: 'text-question', idea: 'text-important', meeting: 'text-muted', reference: 'text-muted', journal: 'text-accent',
 }
 
 export function TypeGlyph({ type }: { type: NoteType }) {
@@ -16,7 +16,7 @@ export function TypeChip({ value, onChange }: { value: NoteType; onChange: (t: N
       <span className={TYPE_TONE[value]} aria-hidden>{TYPE_GLYPH[value]}</span>
       <span className="sr-only">Note type</span>
       <select value={value} onChange={(e) => onChange(e.target.value as NoteType)} className="cursor-pointer appearance-none bg-transparent pr-0.5 outline-none">
-        {NOTE_TYPES.map((t) => <option key={t} value={t}>{NOTE_TYPE_LABEL[t]}</option>)}
+        {SETTABLE_NOTE_TYPES.map((t) => <option key={t} value={t}>{NOTE_TYPE_LABEL[t]}</option>)}
       </select>
     </label>
   )

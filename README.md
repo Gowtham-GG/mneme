@@ -23,7 +23,8 @@ though it is designed for personal use.
 actions on the Notes/Archive/Trash/Search lists (star, tag, archive, trash, restore, delete forever), named/pinned
 saved searches, an overdue/due-today count on the Tasks dock icon, optional due-date reminder emails (§15), and a
 month calendar on Home (ring = notes written that day, dots = scheduled/tasks/overdue/done; pick a day to see its
-notes and agenda, or add a task/appointment to it).
+notes and agenda, or add a task/appointment to it), and a daily journal (one page per day — ✎ Journal in the
+day agenda, or press J; `type:journal` finds them all).
 
 ---
 
@@ -198,6 +199,7 @@ Files in `supabase/migrations/`, in order:
 20260922100600_mneme_15_reminders_cron.sql  cron schedule for reminders — run MANUALLY, see 5.6 below
 20260923100000_mneme_16_daily_digest.sql daily reminder digest (overdue/today repeated daily + upcoming 7 days)
 20260923100100_mneme_17_calendar.sql     calendar_month() RPC — per-day marks for the Home calendar
+20260923100200_mneme_18_journal.sql      daily journal: note_type 'journal' + journal_date, open_journal() RPC
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.

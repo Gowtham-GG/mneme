@@ -727,5 +727,44 @@ begin
   perform t.logout();
 end $$;
 
+-- ================================================================= 12. journal ==
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        id1 text; id2 text; today date; cnt bigint;
+begin
+  perform t.login(a);
+  update mneme.settings set timezone = 'UTC';
+  select (now() at time zone 'UTC')::date into today;
+  id1 := mneme.open_journal(today);
+  id2 := mneme.open_journal(today);
+  perform t.ok(id1 is not null and id1 = id2, 'open_journal is idempotent: one page per day');
+  perform t.ok((select note_type = 'journal' and journal_date = today and title is not null from mneme.notes where public_id = id1),
+               'the journal page is typed journal, dated, and titled');
+  perform t.ok(mneme.inbox_count() = (select count(*) from mneme.notes where note_type = 'capture' and archived_at is null and deleted_at is null),
+               'journal pages never land in the Inbox');
+  perform t.ok(mneme.open_journal(today - 5) <> id1, 'a past day gets its own page');
+  perform t.ok(t.throws(format('select mneme.open_journal(%L::date)', today + 5)), 'no journal for future days');
+  perform t.ok(t.throws(format('update mneme.notes set note_type = %L where public_id = %L', 'idea', id1)),
+               'a journal page cannot be retyped (type and date go together)');
+  perform t.ok(t.throws($q$ insert into mneme.notes (note_type) values ('journal') $q$), 'a journal note needs a date');
+  perform t.ok((select journal from mneme.calendar_month(today - 1, today + 1) where day = today), 'calendar flags journal days');
+
+  -- trash frees the day: opening again starts a fresh page
+  update mneme.notes set deleted_at = now() where public_id = id1;
+  id2 := mneme.open_journal(today);
+  perform t.ok(id2 <> id1, 'a trashed journal page is replaced by a fresh one');
+  perform t.logout();
+
+  perform t.login(b);
+  id2 := mneme.open_journal(today);
+  select count(*) into cnt from mneme.notes where note_type = 'journal';
+  perform t.ok(cnt = 1 and (select user_id from mneme.notes where public_id = id2) = b,
+               'each user has their own journal; B sees only B''s page');
+  perform t.logout();
+  perform t.anon();
+  perform t.ok(t.throws(format('select mneme.open_journal(%L::date)', today)), 'anon cannot open a journal');
+  perform t.logout();
+end $$;
+
 rollback;
 \echo ALL TESTS PASSED

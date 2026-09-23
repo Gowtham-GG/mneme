@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { searchNotes } from '@/api/search'
 import { useDebounced } from '@/hooks/useDebounced'
+import { useOpenJournal } from '@/hooks/useOpenJournal'
+import { todayKey } from '@/lib/dates'
 import { useSettings } from '@/contexts/SettingsContext'
 import { THEMES } from '@/lib/themes'
 import { displayTitle, isNoteId } from '@/lib/text'
@@ -12,7 +14,8 @@ interface Item { key: string; label: string; hint?: string; run: () => void }
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const nav = useNavigate()
-  const { activeTheme, update } = useSettings()
+  const { activeTheme, update, timezone } = useSettings()
+  const openJournal = useOpenJournal()
   const [q, setQ] = useState('')
   const [i, setI] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -26,6 +29,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const actions = useMemo<Item[]>(() => [
     { key: 'new', label: 'New note', hint: 'Ctrl+N', run: go('/n/new') },
     { key: 'today', label: 'Open today', run: go('/') },
+    { key: 'journal', label: 'Today’s journal', hint: 'J', run: () => { onClose(); void openJournal(todayKey(timezone)) } },
     { key: 'notes', label: 'All notes (timeline)', run: go('/notes') },
     { key: 'tasks', label: 'Tasks', run: go('/tasks') },
     { key: 'inbox', label: 'Inbox — captures to process', run: go('/inbox') },
@@ -40,7 +44,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     { key: 'export', label: 'Export my notes…', run: go('/settings#export') },
     { key: 'settings', label: 'Settings', run: go('/settings') },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [activeTheme])
+  ], [activeTheme, timezone])
 
   const items: Item[] = useMemo(() => {
     const ql = q.trim().toLowerCase()

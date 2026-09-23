@@ -5,6 +5,9 @@ import { signOut } from '@/api/auth'
 import { inboxCount } from '@/api/notes'
 import { dueTaskCount } from '@/api/tasks'
 import { useHotkeys } from '@/hooks/useHotkeys'
+import { useOpenJournal } from '@/hooks/useOpenJournal'
+import { useSettings } from '@/contexts/SettingsContext'
+import { todayKey } from '@/lib/dates'
 import { useOnline } from '@/hooks/useOnline'
 import { Brand } from './Brand'
 import { CommandPalette } from './CommandPalette'
@@ -42,6 +45,8 @@ export function Shell() {
   const [palette, setPalette] = useState(false)
   const [help, setHelp] = useState(false)
   const [more, setMore] = useState(false)
+  const openJournal = useOpenJournal()
+  const { timezone } = useSettings()
   const inbox = useQuery({ queryKey: ['inbox-count'], queryFn: inboxCount, staleTime: 30_000 })
   const dueTasks = useQuery({ queryKey: ['due-task-count'], queryFn: dueTaskCount, staleTime: 30_000 })
   const inEditor = loc.pathname.startsWith('/n/')
@@ -54,6 +59,7 @@ export function Shell() {
     { combo: 'mod+k', handler: (e) => { e.preventDefault(); setPalette((v) => !v) }, inInputs: true },
     { combo: 'mod+p', handler: (e) => { e.preventDefault(); setPalette(true) }, inInputs: true },
     { combo: '/', handler: (e) => { e.preventDefault(); nav('/search') } },
+    { combo: 'j', handler: (e) => { e.preventDefault(); void openJournal(todayKey(timezone)) } },
     { combo: '?', handler: (e) => { e.preventDefault(); setHelp(true) } },
   ])
 
@@ -132,7 +138,7 @@ export function Shell() {
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2 className="mb-4 text-lg font-semibold">Keyboard shortcuts</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 text-sm">
-          {[['Ctrl/Cmd + N  ·  C', 'New note'], ['Ctrl/Cmd + K', 'Command palette'], ['Ctrl/Cmd + P', 'Jump to a note'], ['/', 'Search'], ['Ctrl/Cmd + Enter', 'Save & close (in the editor)'],
+          {[['Ctrl/Cmd + N  ·  C', 'New note'], ['Ctrl/Cmd + K', 'Command palette'], ['Ctrl/Cmd + P', 'Jump to a note'], ['/', 'Search'], ['J', 'Today’s journal'], ['Ctrl/Cmd + Enter', 'Save & close (in the editor)'],
             ['E', 'Edit the open note'], ['Esc', 'Close / stop editing'], ['?', 'This help']].map(([k, d]) => (
             <div key={k} className="contents"><dt><kbd className="rounded-md border border-line bg-panel px-1.5 py-0.5 font-mono text-xs">{k}</kbd></dt><dd className="text-muted">{d}</dd></div>
           ))}

@@ -9,6 +9,7 @@ const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 
 function describe(key: string, c: CalendarDay | undefined): string {
   const bits = [formatFullDate(key)]
+  if (c?.journal) bits.push('journal')
   if (c?.notes) bits.push(`${c.notes} note${c.notes === 1 ? '' : 's'} written`)
   if (c?.scheduled) bits.push(`${c.scheduled} scheduled`)
   const plain = (c?.open_tasks ?? 0) - (c?.scheduled ?? 0)
@@ -18,7 +19,8 @@ function describe(key: string, c: CalendarDay | undefined): string {
 }
 
 /**
- * Month calendar. A ring round a date = notes were written that day; dots
+ * Month calendar. A ring round a date = notes were written that day; a corner
+ * dot = that day has a journal page; dots
  * under it = something due: amber for scheduled items (timed tasks) or
  * meeting notes, teal for open tasks (red once the day has passed), grey
  * when that day's tasks are all done.
@@ -104,6 +106,7 @@ export function Calendar({ today, selected, onSelect }: { today: string; selecte
                   c?.notes && !isSel ? 'ring-[1.5px] ring-accent/70 ring-inset' : '',
                 ].join(' ')}
               >
+                {c?.journal && <span aria-hidden className={`absolute right-1 top-1 size-1.5 rounded-full ${isSel ? 'bg-on-accent' : 'bg-accent'}`} />}
                 <span className="leading-none">{Number(key.slice(8))}</span>
                 <span className="absolute bottom-1 flex h-1 gap-0.5" aria-hidden>
                   {dots.map((d) => <span key={d} className={`size-1 rounded-full ${isSel ? 'bg-on-accent' : d}`} />)}
@@ -116,6 +119,7 @@ export function Calendar({ today, selected, onSelect }: { today: string; selecte
 
       <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-faint" aria-hidden>
         <span className="flex items-center gap-1"><span className="size-3 rounded-full ring-[1.5px] ring-accent/70 ring-inset" />Notes</span>
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-accent" />Journal</span>
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-important" />Scheduled</span>
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-task" />Tasks</span>
         <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-danger" />Overdue</span>

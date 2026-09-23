@@ -6,7 +6,7 @@ import { pushDraft, type NotesApi } from './sync'
 const note = (o: Partial<Note> = {}): Note => ({
   id: 'n1', user_id: 'u', public_id: 'N-260920-001', title: null, content: 'hello', note_type: 'capture',
   is_starred: false, paper_ref: null, version: 1, created_at: '2026-09-20T10:00:00Z', updated_at: '2026-09-20T10:00:00Z',
-  archived_at: null, deleted_at: null, ...o,
+  archived_at: null, deleted_at: null, journal_date: null, ...o,
 })
 const draft = (o: Partial<Draft> = {}): Draft => ({
   id: 'n1', title: null, content: 'hello', createdAt: '2026-09-20T10:00:00Z', baseVersion: null, dirty: true, updatedAt: 0, ...o,

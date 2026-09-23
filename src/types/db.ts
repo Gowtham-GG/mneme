@@ -3,9 +3,12 @@ import type { ThemePref } from '@/lib/themes'
 // Hand-written types for the `mneme` schema (mirrors supabase/migrations).
 // Replace with `supabase gen types typescript --schema mneme` if desired.
 
-export type NoteType = 'capture' | 'knowledge' | 'question' | 'idea' | 'meeting' | 'reference'
+export type NoteType = 'capture' | 'knowledge' | 'question' | 'idea' | 'meeting' | 'reference' | 'journal'
 
-export const NOTE_TYPES: NoteType[] = ['capture', 'knowledge', 'question', 'idea', 'meeting', 'reference']
+export const NOTE_TYPES: NoteType[] = ['capture', 'knowledge', 'question', 'idea', 'meeting', 'reference', 'journal']
+
+/** Types a note can be switched to by hand — a journal page is only ever made by open_journal(). */
+export const SETTABLE_NOTE_TYPES = NOTE_TYPES.filter((t) => t !== 'journal')
 
 export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
   capture: 'Capture',
@@ -14,6 +17,7 @@ export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
   idea: 'Idea',
   meeting: 'Meeting',
   reference: 'Reference',
+  journal: 'Journal',
 }
 
 export interface Note {
@@ -30,6 +34,7 @@ export interface Note {
   updated_at: string
   archived_at: string | null
   deleted_at: string | null
+  journal_date: string | null
 }
 
 /** Row shape returned by list_notes / search_notes / recent_viewed. */
@@ -81,6 +86,7 @@ export interface CalendarDay {
   scheduled: number
   open_tasks: number
   done_tasks: number
+  journal: boolean
 }
 
 export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed'

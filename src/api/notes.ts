@@ -3,7 +3,7 @@ import type { Note, NoteListItem, NoteType } from '@/types/db'
 import { SaveError, toError } from './errors'
 
 const NOTE_COLUMNS =
-  'id,user_id,public_id,title,content,note_type,is_starred,paper_ref,version,created_at,updated_at,archived_at,deleted_at'
+  'id,user_id,public_id,title,content,note_type,is_starred,paper_ref,version,created_at,updated_at,archived_at,deleted_at,journal_date'
 
 export async function fetchNote(id: string): Promise<Note | null> {
   const { data, error } = await supabase.from('notes').select(NOTE_COLUMNS).eq('id', id).maybeSingle()

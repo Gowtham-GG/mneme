@@ -11,6 +11,7 @@ import { NoteRow } from '@/components/NoteRow'
 import { QuickCapture } from '@/components/QuickCapture'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
+import { useOpenJournal } from '@/hooks/useOpenJournal'
 import { addDays, formatDayHeading, formatFullDate, formatTimeOfDay, startOfDayISO, taskDueStatus, todayKey } from '@/lib/dates'
 import { displayTitle } from '@/lib/text'
 
@@ -22,6 +23,7 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
   const [time, setTime] = useState('')
   const [busy, setBusy] = useState(false)
   const items = useQuery({ queryKey: ['tasks', 'day', day], queryFn: () => tasksOnDay(day) })
+  const openJournal = useOpenJournal()
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
@@ -37,7 +39,14 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
   const list = items.data ?? []
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <h3 className="mb-2 text-sm font-semibold">{formatDayHeading(day, tz)}</h3>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{formatDayHeading(day, tz)}</h3>
+        {day <= todayKey(tz) && (
+          <button onClick={() => void openJournal(day)} className="rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent hover:opacity-80">
+            <span aria-hidden>✎ </span>Journal
+          </button>
+        )}
+      </div>
       {items.isLoading && <div className="skeleton h-9" />}
       {!items.isLoading && list.length === 0 && <p className="text-sm text-faint">Nothing scheduled.</p>}
       <ul className="-mx-2">

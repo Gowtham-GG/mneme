@@ -53,7 +53,8 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
   const nav = useNavigate()
   const qc = useQueryClient()
   const desktop = useIsDesktop()
-  const [editing, setEditing] = useState(!!startEditing)
+  // an empty note (e.g. a just-opened journal page) has nothing to read — go straight to typing
+  const [editing, setEditing] = useState(!!startEditing || initial?.content === '')
   const [meta, setMeta] = useState({
     note_type: (initial?.note_type ?? 'capture') as NoteType, is_starred: initial?.is_starred ?? false,
     archived_at: initial?.archived_at ?? null, deleted_at: initial?.deleted_at ?? null, paper_ref: initial?.paper_ref ?? '',
@@ -188,7 +189,9 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
                 ? <button className="tabular-nums hover:text-ink" title="Copy ID" onClick={() => void copy(ed.publicId!, 'Note ID copied')}>{ed.publicId}</button>
                 : <span className="text-faint">New note</span>}
               <span>{formatLongDate(createdAt, tz)}</span>
-              {persisted && <TypeChip value={meta.note_type} onChange={(t) => void patch({ note_type: t }).then(() => undefined)} />}
+              {persisted && (meta.note_type === 'journal'
+                ? <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 font-medium text-accent"><span aria-hidden>✎</span>Journal</span>
+                : <TypeChip value={meta.note_type} onChange={(t) => void patch({ note_type: t }).then(() => undefined)} />)}
               {persisted && meta.note_type === 'capture' && (
                 <button className="rounded-full bg-accent-soft px-2.5 py-1 text-accent hover:opacity-80" onClick={() => void setNoteType(id, 'knowledge').then(() => { setMeta((m) => ({ ...m, note_type: 'knowledge' })); refresh(); toast('Promoted to knowledge') })}>
                   Promote ▸
