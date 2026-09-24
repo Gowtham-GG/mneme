@@ -12,7 +12,8 @@ import { TaskNode } from '@/components/tasks/TaskNode'
 import { TaskUiProvider, useTaskUi } from '@/components/tasks/TaskUi'
 import { ViewToggle } from '@/components/tasks/ViewToggle'
 import type { TaskItem, TaskBucket } from '@/types/db'
-import { IconSearch, IconX } from '@/components/icons'
+import { IconCalendar, IconSearch, IconX } from '@/components/icons'
+import { DueDialog } from '@/components/DueDialog'
 
 function TaskList({ items, empty }: { items: TaskItem[] | undefined; empty: string }) {
   if (!items) return <div className="skeleton h-10" />
@@ -51,6 +52,9 @@ export function Tasks() {
   const [sp, setSp] = useSearchParams()
   const tab = (TABS.find((t) => t.id === sp.get('tab'))?.id ?? 'today') as TaskBucket
   const [title, setTitle] = useState('')
+  // a due date/time picked for the task being typed (typed words like "tomorrow 3pm" still work too)
+  const [due, setDue] = useState<{ date: string; time: string | null } | null>(null)
+  const [picking, setPicking] = useState(false)
   const [query, setQuery] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const dq = useDebounced(query.trim(), 200)
@@ -67,10 +71,10 @@ export function Tasks() {
     const t = title.trim()
     if (!t) return
     try {
-      const made = await addStandaloneTask(t, tab === 'today' ? today : null)
-      setTitle(''); refresh()
-      // a date typed into the title was read: say what it became
-      if (made.title !== t && made.due_date) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
+      const made = await addStandaloneTask(t, due?.date ?? (tab === 'today' ? today : null), due?.time ?? null)
+      setTitle(''); setDue(null); refresh()
+      // say when it's due if that isn't obvious from the list it lands in
+      if (made.due_date && (made.title !== t || due)) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
     } catch { toast('Couldn’t add the task.', { kind: 'error' }) }
   }
   const clearDone = async () => {
@@ -98,10 +102,25 @@ export function Tasks() {
         </div>
 
         <form className="mb-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); void add() }}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tab === 'today' ? 'Add a task for today…' : 'Add a task… (“call bank tomorrow 3pm”)'} aria-label="New task" maxLength={500}
-            className="glass min-w-0 flex-1 rounded-2xl px-4 py-3 outline-none" />
+          <div className="glass flex min-w-0 flex-1 items-center gap-1 rounded-2xl pr-1.5">
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tab === 'today' ? 'Add a task for today…' : 'Add a task… (“call bank tomorrow 3pm”)'} aria-label="New task" maxLength={500}
+              className="min-w-0 flex-1 bg-transparent py-3 pl-4 outline-none" />
+            {due ? (
+              <span className="flex shrink-0 items-center gap-0.5 rounded-lg bg-task-soft py-1 pl-2 pr-1 text-xs text-task">
+                <button type="button" aria-label="Change the due date" onClick={() => setPicking(true)}>
+                  {formatDueDate(due.date, tz)}{due.time ? ` · ${formatTimeOfDay(due.time)}` : ''}
+                </button>
+                <button type="button" aria-label="Remove the due date" className="rounded p-0.5 hover:bg-hover" onClick={() => setDue(null)}><IconX size={12} /></button>
+              </span>
+            ) : (
+              <button type="button" aria-label="Pick a due date and time" title="Due date and time" onClick={() => setPicking(true)}
+                className="shrink-0 rounded-lg p-2 text-faint hover:bg-hover hover:text-ink"><IconCalendar size={18} /></button>
+            )}
+          </div>
           <button disabled={!title.trim()} className="rounded-2xl bg-accent px-5 py-2 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
         </form>
+        <DueDialog open={picking} date={due?.date ?? (tab === 'today' ? today : null)} time={due?.time ?? null} tz={tz}
+          onClose={() => setPicking(false)} onOk={(d, t) => setDue(d ? { date: d, time: t } : null)} />
 
         {dq ? (
           <Card className="rise relative focus-within:z-20" title={<>Results <span className="ml-1 normal-case tracking-normal text-faint">{found.data?.length ?? ''}</span></>}>
