@@ -46,3 +46,15 @@ export const IconSteps = mk(<><circle cx="5.5" cy="5.5" r="2" /><circle cx="5.5"
 export const IconClock = mk(<><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>)
 export const IconEdit = mk(<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3" />)
 export const IconWand = mk(<path d="M5 19 16 8M14 6l1-2 1 2 2 1-2 1-1 2-1-2-2-1zM18.5 13l.6-1.3.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6z" />)
+
+// task-menu actions
+export const IconSubtask = mk(<path d="M6 4v9a3 3 0 0 0 3 3h9m-3.5-3.5L18 16l-3.5 3.5" />)
+export const IconArrowUp = mk(<path d="M12 19V5m-6 6 6-6 6 6" />)
+export const IconArrowDown = mk(<path d="M12 5v14m-6-6 6 6 6-6" />)
+export const IconHourglass = mk(<path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 8 5 8 8.5s-8 4.5-8 8.5M16 3.5c0 4-8 5-8 8.5s8 4.5 8 8.5" />)
+export const IconMoveUnder = mk(<><rect x="4" y="3.5" width="16" height="6" rx="2" /><path d="M8 9.5v6a2 2 0 0 0 2 2h9m-3-3 3 3-3 3" /></>)
+export const IconPullIn = mk(<><rect x="4" y="3.5" width="16" height="6" rx="2" /><path d="M8 9.5v6a2 2 0 0 0 2 2h1M20 14.5v6M17 17.5h6" /></>)
+export const IconUnnest = mk(<path d="M18 20v-7a3 3 0 0 0-3-3H6m3.5-3.5L6 10l3.5 3.5" />)
+export const IconBoard = mk(<><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><rect x="6.5" y="7" width="5" height="4" rx="1" /><rect x="12.5" y="13" width="5" height="4" rx="1" /><path d="M11.5 9h2.5v4" /></>)
+export const IconSnooze = mk(<path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10zM14 4h4l-4 4.5h4" />)
+export const IconTree = mk(<><rect x="9" y="3" width="6" height="4.5" rx="1.2" /><rect x="3" y="16.5" width="6" height="4.5" rx="1.2" /><rect x="15" y="16.5" width="6" height="4.5" rx="1.2" /><path d="M12 7.5V12M6 16.5V12h12v4.5" /></>)

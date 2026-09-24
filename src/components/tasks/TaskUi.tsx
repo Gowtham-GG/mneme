@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,7 +17,10 @@ import { descendantIds, nudgeOrder, STATES } from '@/lib/taskTree'
 import { PRIORITIES } from './pickers'
 import { TaskNode, HighlightContext } from './TaskNode'
 import type { TaskItem, TaskPriority, TaskSequence, TaskState, TaskTree } from '@/types/db'
-import { IconSearch } from '@/components/icons'
+import {
+  IconArrowDown, IconArrowUp, IconBoard, IconCopy, IconHourglass, IconLink, IconMoveUnder, IconNotes, IconPullIn,
+  IconSearch, IconSnooze, IconSteps, IconSubtask, IconTree, IconUnnest,
+} from '@/components/icons'
 
 export function useTaskTree(rootId: string | undefined, enabled = true) {
   return useQuery({ queryKey: ['tasks', 'tree', rootId], queryFn: () => getTaskTree(rootId!), enabled: !!rootId && enabled })
@@ -150,7 +153,29 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
 // ------------------------------------------------------------------ menu --
 
 const chip = (on: boolean) => `rounded-full px-3 py-1.5 text-sm ${on ? 'bg-accent font-medium text-on-accent' : 'bg-panel hover:bg-hover'}`
-const item = 'rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover disabled:opacity-40'
+type Act = { icon: ComponentType<{ size?: number }>; label: string; hint: string; onClick: () => void; disabled?: boolean }
+
+function ActionGroup({ title, acts, cols = 2 }: { title: string; acts: (Act | false | null | undefined)[]; cols?: 1 | 2 }) {
+  const shown = acts.filter(Boolean) as Act[]
+  if (!shown.length) return null
+  return (
+    <section className="rounded-2xl bg-panel/60 p-1.5">
+      <h3 className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">{title}</h3>
+      <div className={`grid gap-0.5 ${cols === 2 ? 'sm:grid-cols-2' : ''}`}>
+        {shown.map((a) => (
+          <button key={a.label} disabled={a.disabled} onClick={a.onClick}
+            className="flex items-start gap-3 rounded-xl px-2.5 py-2 text-left hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent">
+            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent"><a.icon size={18} /></span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{a.label}</span>
+              <span className="block text-xs leading-snug text-muted">{a.hint}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void }) {
   const ui = useTaskUi()
@@ -164,57 +189,71 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
   const up = siblings && reorderable ? nudgeOrder(siblings, t.id, -1) : null
   const down = siblings && reorderable ? nudgeOrder(siblings, t.id, 1) : null
   const noteHint = t.source === 'note' ? ' (rewrites the note)' : ''
+  const canReorder = up !== null || down !== null
 
   return (
-    <Dialog open onClose={onClose} title={t.title}>
-      <h2 className="mb-4 line-clamp-2 text-base font-semibold">{t.title}</h2>
-      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Status">
-        {STATES.map((s) => (
-          <button key={s.id} aria-pressed={t.state === s.id} className={chip(t.state === s.id)}
-            onClick={then(() => { if (s.id !== t.state) void ui.act.state(t, s.id) })}>{s.label}</button>
-        ))}
+    <Dialog open onClose={onClose} title={t.title} wide>
+      <h2 className="mb-4 line-clamp-2 text-lg font-semibold">{t.title}</h2>
+      <div className="mb-4 grid gap-3 sm:grid-cols-[auto_1fr]">
+        <span className="pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Status</span>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Status">
+          {STATES.map((s) => (
+            <button key={s.id} aria-pressed={t.state === s.id} className={chip(t.state === s.id)}
+              onClick={then(() => { if (s.id !== t.state) void ui.act.state(t, s.id) })}>{s.label}</button>
+          ))}
+        </div>
+        <span className="pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Priority</span>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Priority">
+          {PRIORITIES.map((p) => (
+            <button key={p.label} aria-pressed={t.priority === p.id} className={chip(t.priority === p.id)}
+              onClick={then(() => { if (p.id !== t.priority) void ui.act.priority(t, p.id) })}>{p.id ? p.label : 'None'}</button>
+          ))}
+        </div>
       </div>
-      <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Priority">
-        {PRIORITIES.map((p) => (
-          <button key={p.label} aria-pressed={t.priority === p.id} className={chip(t.priority === p.id)}
-            onClick={then(() => { if (p.id !== t.priority) void ui.act.priority(t, p.id) })}>{p.id ? p.label : 'No priority'}</button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-1">
-        <button className={item} onClick={then(req.onAddSub)}>+ Subtask</button>
-        <button className={item} onClick={then(req.onAddSeq)}>+ Sequence</button>
-        {up !== null || down !== null ? <>
-          <button className={item} disabled={up === null} onClick={then(() => void ui.act.reorder(t, up!))}>↑ Move up</button>
-          <button className={item} disabled={down === null} onClick={then(() => void ui.act.reorder(t, down!))}>↓ Move down</button>
-        </> : null}
-        {!t.sequence_id && t.parent_id && parentSeqs?.map((s) => (
-          <button key={s.id} className={item} onClick={then(() => void ui.act.moveUnder(t, t.parent_id, s.id))}>Into “{s.title || 'Sequence'}”</button>
-        ))}
-        {t.sequence_id && t.parent_id && <button className={item} onClick={then(() => void ui.act.moveUnder(t, t.parent_id, null))}>Out of sequence</button>}
-        <button className={item} onClick={then(() => ui.pick({
-          title: `Move “${t.title}” under…${noteHint}`, exclude: new Set([t.id, ...below]),
-          onPick: (p) => void ui.act.moveUnder(t, p.id, null, `Moved under ${p.title}`),
-        }))}>Move under…</button>
-        {t.parent_id && <button className={item} onClick={then(() => void ui.act.moveUnder(t, null, null, 'Now a main task'))}>Make main task</button>}
-        <button className={item} onClick={then(() => ui.pick({
-          title: `Add under “${t.title}”`, exclude: new Set([t.id, ...below]),
-          onPick: (c) => void ui.act.moveUnder(c, t.id, null, `${c.title} is now a subtask`),
-        }))}>Add existing…</button>
-        <button className={item} onClick={then(() => ui.pick({
-          title: `“${t.title}” waits for…`, exclude: new Set([t.id]),
-          onPick: (p) => void ui.act.link(p.id, t.id, 'blocks'),
-        }))}>Waits for…</button>
-        <button className={item} onClick={then(() => ui.pick({
-          title: `Relate “${t.title}” to…`, exclude: new Set([t.id]),
-          onPick: (p) => void ui.act.link(t.id, p.id, 'related'),
-        }))}>Related…</button>
-        {!t.parent_id && <button className={item} onClick={then(() => ui.openCanvases(t))}>Canvases…</button>}
-        {t.snoozed
-          ? <button className={item} onClick={then(() => void ui.act.snooze(t, null))}>Wake up</button>
-          : <button className={item} onClick={then(() => ui.openSnooze(t))}>Snooze…</button>}
-        <button className={item} onClick={then(() => void ui.act.copyLink(t))}>Copy link</button>
-        <button className={item} onClick={then(() => ui.openTree(t.root_id, t.id))}>Whole task</button>
-        {t.note_public_id && <button className={item} onClick={then(() => navigate(`/n/${t.note_public_id}`))}>Open note</button>}
+      <div className="grid gap-2">
+        <ActionGroup title="Break it down" acts={[
+          { icon: IconSubtask, label: 'Subtask', hint: 'Add a smaller piece of this task', onClick: then(req.onAddSub) },
+          { icon: IconSteps, label: 'Sequence', hint: 'Ordered steps — each waits for the one before', onClick: then(req.onAddSeq) },
+          canReorder && { icon: IconArrowUp, label: 'Move up', hint: 'Earlier among its siblings', disabled: up === null, onClick: then(() => void ui.act.reorder(t, up!)) },
+          canReorder && { icon: IconArrowDown, label: 'Move down', hint: 'Later among its siblings', disabled: down === null, onClick: then(() => void ui.act.reorder(t, down!)) },
+          ...(!t.sequence_id && t.parent_id && parentSeqs ? parentSeqs.map((s) => ({
+            icon: IconSteps, label: `Into “${s.title || 'Sequence'}”`, hint: 'Make this a step of that sequence',
+            onClick: then(() => void ui.act.moveUnder(t, t.parent_id, s.id)),
+          })) : []),
+          !!t.sequence_id && !!t.parent_id && { icon: IconUnnest, label: 'Out of sequence', hint: 'Keep it as a loose subtask, no order', onClick: then(() => void ui.act.moveUnder(t, t.parent_id, null)) },
+        ]} />
+        <ActionGroup title="Connect & move" acts={[
+          { icon: IconHourglass, label: 'Waits for…', hint: 'Pick a task that must finish first — this stays Blocked until then', onClick: then(() => ui.pick({
+            title: `“${t.title}” waits for…`, exclude: new Set([t.id]),
+            onPick: (p) => void ui.act.link(p.id, t.id, 'blocks'),
+          })) },
+          { icon: IconLink, label: 'Related…', hint: 'Link a task for reference — doesn’t change either status', onClick: then(() => ui.pick({
+            title: `Relate “${t.title}” to…`, exclude: new Set([t.id]),
+            onPick: (p) => void ui.act.link(t.id, p.id, 'related'),
+          })) },
+          { icon: IconMoveUnder, label: 'Move under…', hint: `Make this a subtask of another task${noteHint}`, onClick: then(() => ui.pick({
+            title: `Move “${t.title}” under…${noteHint}`, exclude: new Set([t.id, ...below]),
+            onPick: (p) => void ui.act.moveUnder(t, p.id, null, `Moved under ${p.title}`),
+          })) },
+          { icon: IconPullIn, label: 'Add existing…', hint: 'Pull another task in as a subtask of this one', onClick: then(() => ui.pick({
+            title: `Add under “${t.title}”`, exclude: new Set([t.id, ...below]),
+            onPick: (c) => void ui.act.moveUnder(c, t.id, null, `${c.title} is now a subtask`),
+          })) },
+          !!t.parent_id && { icon: IconUnnest, label: 'Make main task', hint: 'Detach it from its parent', onClick: then(() => void ui.act.moveUnder(t, null, null, 'Now a main task')) },
+          !t.parent_id && { icon: IconBoard, label: 'Canvases…', hint: 'Choose which boards show this task', onClick: then(() => ui.openCanvases(t)) },
+        ]} />
+        <div className="grid gap-2 sm:grid-cols-3">
+          <ActionGroup title="Later" cols={1} acts={[t.snoozed
+            ? { icon: IconSnooze, label: 'Wake up', hint: 'Show it again now', onClick: then(() => void ui.act.snooze(t, null)) }
+            : { icon: IconSnooze, label: 'Snooze…', hint: 'Hide it until a later day', onClick: then(() => ui.openSnooze(t)) }]} />
+          <ActionGroup title="Share" cols={1} acts={[
+            { icon: IconCopy, label: 'Copy link', hint: `Paste [[${t.code}]] into a note`, onClick: then(() => void ui.act.copyLink(t)) },
+          ]} />
+          <ActionGroup title="View" cols={1} acts={[
+            { icon: IconTree, label: 'Whole task', hint: 'See the full tree it belongs to', onClick: then(() => ui.openTree(t.root_id, t.id)) },
+            !!t.note_public_id && { icon: IconNotes, label: 'Open note', hint: 'Go to the note it lives in', onClick: then(() => navigate(`/n/${t.note_public_id}`)) },
+          ]} />
+        </div>
       </div>
     </Dialog>
   )
