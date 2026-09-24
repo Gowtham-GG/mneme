@@ -7,7 +7,7 @@ const task = (id: string, over: Partial<TaskItem> = {}): TaskItem => ({
   due_date: null, due_time: null, position: 0, created_at: '2026-01-01', completed_at: null,
   note_public_id: null, note_title: null, state: 'open', parent_id: null, sequence_id: null,
   sort_order: 0, blocked: false, child_count: 0, child_resolved: 0, updated_at: '2026-01-01',
-  root_id: 'r', parent_title: null, ...over,
+  root_id: 'r', parent_title: null, code: 'T-00000000', ...over,
 })
 
 const tree: TaskTree = {

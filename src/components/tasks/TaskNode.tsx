@@ -55,14 +55,15 @@ function LinkChip({ end, label, onRemove }: { end: LinkEnd; label: string; onRem
   )
 }
 
-function AddInline({ placeholder, onAdd, onDone, allowEmpty }: { placeholder: string; onAdd: (v: string) => Promise<unknown> | void; onDone: () => void; allowEmpty?: boolean }) {
+/** Inline entry: Enter adds and stays open for the next one; `once` (or `allowEmpty`) closes after one. */
+function AddInline({ placeholder, onAdd, onDone, allowEmpty, once }: { placeholder: string; onAdd: (v: string) => Promise<unknown> | void; onDone: () => void; allowEmpty?: boolean; once?: boolean }) {
   const [v, setV] = useState('')
   const submit = async () => {
     const x = v.trim()
     if (!x && !allowEmpty) return onDone()
     await onAdd(x)
     setV('')
-    if (allowEmpty) onDone()
+    if (allowEmpty || once) onDone()
   }
   return (
     <input
@@ -75,6 +76,9 @@ function AddInline({ placeholder, onAdd, onDone, allowEmpty }: { placeholder: st
   )
 }
 
+/** What the inline entry under a task is adding: a subtask, a sequence's name, then its first step. */
+type Adding = null | 'sub' | 'seq' | { seqName: string }
+
 interface NodeProps {
   t: TaskItem
   /** The tree this node is drawn from; absent for a row in a flat list (fetched when expanded). */
@@ -84,15 +88,17 @@ interface NodeProps {
   step?: number
   siblings?: TaskItem[]
   parentSeqs?: TaskSequence[]
+  /** Just this task's row (the board's card): no subtree, only the add inputs. */
+  leafOnly?: boolean
 }
 
-export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs }: NodeProps) {
+export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafOnly }: NodeProps) {
   const ui = useTaskUi()
   const { timezone: tz } = useSettings()
   const highlight = useContext(HighlightContext)
   const flat = !tree
   const [open, setOpen] = useState(!flat)
-  const [adding, setAdding] = useState<null | 'sub' | 'seq'>(null)
+  const [adding, setAdding] = useState<Adding>(null)
   // a just-created sequence opens its first-step input; kept here so a refetch can't lose it
   const [newSeq, setNewSeq] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -121,7 +127,7 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs }: Nod
     <li ref={ref}>
       <div className={`group/row rounded-lg px-2 py-1.5 hover:bg-hover ${lit ? 'ring-2 ring-accent' : ''}`}>
         <div className="flex items-start gap-2">
-          {hasKids ? (
+          {hasKids && !leafOnly ? (
             <button aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={open} onClick={() => setOpen((v) => !v)}
               className="-ml-1 mt-[1px] shrink-0 rounded p-0.5 text-faint hover:text-ink">
               <IconChevron size={14} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
@@ -168,7 +174,8 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs }: Nod
           {links.related.map((e) => <LinkChip key={e.link.id} end={e} label="↔" onRemove={() => void ui.act.unlink(e.link.id)} />)}
         </div>
       </div>
-      {open && (hasKids || adding) && (
+      {leafOnly ? (adding && <TaskChildren tree={data} parent={t} depth={depth} adding={adding} setAdding={setAdding} newSeq={newSeq} setNewSeq={setNewSeq} inputsOnly />)
+      : open && (hasKids || adding) && (
         data || !hasKids
           ? <TaskChildren tree={data} parent={t} depth={depth} adding={adding} setAdding={setAdding} newSeq={newSeq} setNewSeq={setNewSeq} />
           : <div className="skeleton ml-7 h-8" />
@@ -177,14 +184,16 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs }: Nod
   )
 }
 
-function TaskChildren({ tree, parent, depth, adding, setAdding, newSeq, setNewSeq }: {
+function TaskChildren({ tree, parent, depth, adding, setAdding, newSeq, setNewSeq, inputsOnly }: {
   tree: TaskTree | undefined; parent: TaskItem; depth: number
-  adding: null | 'sub' | 'seq'; setAdding: (v: null | 'sub' | 'seq') => void
+  adding: Adding; setAdding: (v: Adding) => void
   newSeq: string | null; setNewSeq: (id: string | null) => void
+  inputsOnly?: boolean
 }) {
   const ui = useTaskUi()
-  const { sequences, loose } = childrenOf(tree, parent.id)
-  const seqs = sequences.map((s) => s.seq)
+  const kids = childrenOf(tree, parent.id)
+  const { sequences, loose } = inputsOnly ? { sequences: [], loose: [] } : kids
+  const seqs = kids.sequences.map((s) => s.seq)
   return (
     <div className="ml-[1.05rem] border-l border-line pl-1 sm:pl-2">
       {sequences.map(({ seq, steps }) => (
@@ -195,10 +204,14 @@ function TaskChildren({ tree, parent, depth, adding, setAdding, newSeq, setNewSe
       )}
       {adding === 'sub' && <AddInline placeholder="Subtask" onAdd={(v) => ui.act.addSub(parent.id, v)} onDone={() => setAdding(null)} />}
       {adding === 'seq' && (
-        <AddInline placeholder="Sequence name (optional)" allowEmpty onDone={() => setAdding(null)}
-          onAdd={async (v) => { const id = await ui.act.addSeq(parent.id, v || null); if (id) setNewSeq(id) }} />
+        <AddInline key="seq" placeholder="Sequence name (optional)" allowEmpty onDone={() => {}}
+          onAdd={(v) => setAdding({ seqName: v })} />
       )}
-      {!adding && parent.source === 'standalone' && (
+      {adding && typeof adding === 'object' && (
+        <AddInline key="step" placeholder={`${adding.seqName || 'Sequence'} — step 1`} once onDone={() => setAdding(null)}
+          onAdd={async (v) => { const id = await ui.act.addSeq(parent.id, adding.seqName || null, v); if (id) setNewSeq(id) }} />
+      )}
+      {!adding && !inputsOnly && (
         <div className="flex gap-3 py-0.5 pl-7 text-xs text-faint">
           <button className="hover:text-accent" onClick={() => setAdding('sub')}>+ Subtask</button>
           <button className="hover:text-accent" onClick={() => setAdding('seq')}>+ Sequence</button>
@@ -230,12 +243,13 @@ function SequenceBlock({ seq, steps, tree, depth, startAdding, onStarted }: { se
         ) : (
           <span className="min-w-0 flex-1 truncate font-medium">{seq.title || 'Sequence'} <span className="font-normal tabular-nums text-faint">{done}/{steps.length}</span></span>
         )}
-        <button aria-label="Add step" className={`${ROW_ACTION} hover:text-ink`} onClick={() => setAdding(true)}>+</button>
-        {!editing && <button aria-label="Rename sequence" className={`${ROW_ACTION} hover:text-ink`} onClick={() => { setDraft(seq.title ?? ''); setEditing(true) }}><IconEdit size={14} /></button>}
-        <button aria-label="Delete sequence" className={`${ROW_ACTION} hover:text-danger`} onClick={() => ui.act.delSeq(seq, steps.length)}><IconX size={14} /></button>
+        {seq.task_id && <button aria-label="Add step" className={`${ROW_ACTION} hover:text-ink`} onClick={() => setAdding(true)}>+</button>}
+        {/* a sequence written in a note is named and removed in the note */}
+        {!editing && !seq.note_id && <button aria-label="Rename sequence" className={`${ROW_ACTION} hover:text-ink`} onClick={() => { setDraft(seq.title ?? ''); setEditing(true) }}><IconEdit size={14} /></button>}
+        {!seq.note_id && <button aria-label="Delete sequence" className={`${ROW_ACTION} hover:text-danger`} onClick={() => ui.act.delSeq(seq, steps.length)}><IconX size={14} /></button>}
       </div>
       <ol>{steps.map((s, i) => <TaskNode key={s.id} t={s} tree={tree} depth={depth + 1} step={i + 1} siblings={steps} />)}</ol>
-      {adding && <AddInline placeholder={`Step ${steps.length + 1}`} onAdd={(v) => ui.act.addSub(seq.task_id, v, seq.id)} onDone={() => setAdding(false)} />}
+      {adding && seq.task_id && <AddInline placeholder={`Step ${steps.length + 1}`} onAdd={(v) => ui.act.addSub(seq.task_id!, v, seq.id)} onDone={() => setAdding(false)} />}
     </div>
   )
 }

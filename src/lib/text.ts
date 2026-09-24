@@ -62,12 +62,51 @@ export function splitHighlight(snippet: string): { text: string; hit: boolean }[
   return out
 }
 
-/** Rewrite the checkbox on 1-based `lineNo` (mirrors mneme.set_task_done). */
+const TASK_LINE = /^[ \t]*(?:[-*+]|\d+[.)])\s+\[([ xX/hH-])\]\s+\S/
+const indentOf = (l: string) => (/^[ \t]*/.exec(l)?.[0] ?? '').replace(/\t/g, '    ').length
+const markerOf = (l: string) => (TASK_LINE.exec(l)?.[1] ?? ' ').toLowerCase()
+const setMarker = (l: string, m: string) => l.replace(/\[[ xX/hH-]\]/, `[${m}]`)
+
+/** 0-based parent line of every checkbox line, by indentation — the same rule as mneme.sync_note_tasks. */
+export function taskParents(lines: string[]): Map<number, number | null> {
+  const out = new Map<number, number | null>()
+  const stack: { ind: number; task: boolean; i: number }[] = []
+  let fence = false
+  lines.forEach((l, i) => {
+    if (/^\s{0,3}(```|~~~)/.test(l)) { fence = !fence; return }
+    if (fence || !l.trim()) return
+    const ind = indentOf(l)
+    while (stack.length && stack[stack.length - 1].ind >= ind) stack.pop()
+    const task = TASK_LINE.test(l)
+    if (task) out.set(i, [...stack].reverse().find((e) => e.task)?.i ?? null)
+    stack.push({ ind, task, i })
+  })
+  return out
+}
+
+/**
+ * Tick/untick the checkbox on 1-based `lineNo`, and mirror the parent roll-up in
+ * the text (all subtasks finished -> [x]; progress -> [/]; reopened -> back),
+ * like the database does — so the note reads the same as the Tasks page.
+ */
 export function toggleTaskInContent(content: string, lineNo: number, done: boolean): string {
   const lines = content.split('\n')
   const i = lineNo - 1
-  if (i < 0 || i >= lines.length) return content
-  lines[i] = lines[i].replace(/\[[ xX]\]/, done ? '[x]' : '[ ]')
+  if (i < 0 || i >= lines.length || !TASK_LINE.test(lines[i])) return content
+  lines[i] = setMarker(lines[i], done ? 'x' : ' ')
+  const parents = taskParents(lines)
+  let p = parents.get(i) ?? null
+  while (p !== null) {
+    const kids = [...parents].filter(([, q]) => q === p).map(([k]) => markerOf(lines[k]))
+    const ps = markerOf(lines[p])
+    if (ps === 'h' || ps === '-') break // set by hand: left alone
+    const res = kids.filter((m) => m === 'x' || m === '-').length
+    const prog = kids.filter((m) => m === 'x' || m === '/').length
+    const target = res === kids.length ? 'x' : ps === 'x' ? (prog ? '/' : ' ') : ps === ' ' && prog ? '/' : ps
+    if (target === ps) break
+    lines[p] = setMarker(lines[p], target)
+    p = parents.get(p) ?? null
+  }
   return lines.join('\n')
 }
 

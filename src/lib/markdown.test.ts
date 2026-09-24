@@ -68,6 +68,22 @@ describe('text helpers', () => {
   it('splitHighlight separates «hits»', () => {
     expect(splitHighlight('a «b» c')).toEqual([{ text: 'a ', hit: false }, { text: 'b', hit: true }, { text: ' c', hit: false }])
   })
+  it('toggleTaskInContent mirrors the parent roll-up', () => {
+    const s = '- [ ] Launch\n  Domain:\n  1. [x] Buy\n  2. [ ] DNS\n    - [ ] sub\n- [ ] Other'
+    // a top-level task only changes itself
+    expect(toggleTaskInContent(s, 6, true)).toBe(s.replace('- [ ] Other', '- [x] Other'))
+    const a = toggleTaskInContent(s, 5, true) // sub done -> DNS (its only child) done -> Launch done
+    expect(a).toBe('- [x] Launch\n  Domain:\n  1. [x] Buy\n  2. [x] DNS\n    - [x] sub\n- [ ] Other')
+    expect(toggleTaskInContent(a, 3, false)).toBe('- [/] Launch\n  Domain:\n  1. [ ] Buy\n  2. [x] DNS\n    - [x] sub\n- [ ] Other')
+    expect(toggleTaskInContent('- [h] held\n  - [ ] a', 2, true)).toBe('- [h] held\n  - [x] a') // on hold by hand: left alone
+    expect(toggleTaskInContent('- [ ] p\n  - [ ] a\n  - [ ] b', 2, true)).toBe('- [/] p\n  - [x] a\n  - [ ] b')
+  })
+  it('reads every checkbox marker', () => {
+    const b = parseBlocks('- [/] a\n- [-] b\n- [h] c\n- [X] d')
+    expect(b.map((x) => x.t === 'item' && x.task?.state)).toEqual(['in_progress', 'cancelled', 'on_hold', 'done'])
+    const [l] = parseBlocks('see [[t-1a2b3c4d]]')
+    expect(l.t === 'line' && l.c[1]).toEqual({ t: 'noteLink', ref: 'T-1A2B3C4D', label: 't-1a2b3c4d', isId: false, isTask: true })
+  })
   it('toggleTaskInContent flips only the targeted line', () => {
     const s = '- [ ] a\n- [ ] b\n- [x] c'
     expect(toggleTaskInContent(s, 2, true)).toBe('- [ ] a\n- [x] b\n- [x] c')

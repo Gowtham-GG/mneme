@@ -1059,12 +1059,13 @@ begin
   insert into mneme.notes (content) values (E'- [ ] call bank\n- [ ] email') returning id into n1;
   select id into nt from mneme.tasks where note_id = n1 and title = 'call bank';
   perform mneme.set_task_state(nt, 'in_progress');
-  update mneme.notes set content = E'- [ ] call bank\n- [ ] email\nmore text' where id = n1;
+  perform t.ok((select content from mneme.notes where id = n1) like '- [/] call bank%', 'in progress is written into the note as [/]');
+  update mneme.notes set content = content || E'\nmore text' where id = n1;
   perform t.ok((select state from mneme.tasks where id = nt) = 'in_progress', 'in progress survives editing the note');
   perform mneme.set_task_state(nt, 'cancelled');
-  perform t.ok((select content from mneme.notes where id = n1) like '- [x] call bank%', 'cancelling a note task ticks its line');
+  perform t.ok((select content from mneme.notes where id = n1) like '- [-] call bank%', 'cancelling a note task marks its line [-]');
   perform t.ok((select state from mneme.tasks where id = nt) = 'cancelled', '…and it stays cancelled');
-  update mneme.notes set content = replace(content, '- [x] call bank', '- [ ] call bank') where id = n1;
+  update mneme.notes set content = replace(content, '- [-] call bank', '- [ ] call bank') where id = n1;
   perform t.ok((select state from mneme.tasks where id = nt) = 'open', 'unticking the line in the note reopens it');
   perform t.ok(t.throws(format('update mneme.tasks set parent_id = %L where id = %L', p, nt)), 'a note task can''t be moved under a task (yet)');
   perform t.ok(t.throws(format('insert into mneme.tasks (source, title, parent_id) values (%L, %L, %L)', 'standalone', 'sub', nt)),
@@ -1133,6 +1134,175 @@ begin
 
   perform t.login(b);
   perform t.ok(jsonb_array_length(mneme.task_tree(r)->'tasks') = 0, 'B gets an empty tree for A''s task');
+  perform t.logout();
+end $$;
+
+-- ================================================== tasks written in notes ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; n2 uuid; lw uuid; bd uuid; pd uuid; wa uuid; pf uuid; ds uuid; t1 uuid; t2 uuid; s1 uuid; s2 uuid;
+        x uuid; y uuid; c text; today date := (now() at time zone 'UTC')::date;
+begin
+  perform t.login(a);
+  insert into mneme.notes (content) values (E'Launch site\n- [ ] Launch website\n  Domain:\n  1. [ ] Buy domain\n  2. [ ] Point DNS\n  Content:\n  1. [ ] Write About\n  - [ ] Pick favicon\n    - [ ] Draw sketch\n1. [ ] Top step one\n2. [ ] Top step two')
+    returning id into n1;
+  select id into lw from mneme.tasks where note_id = n1 and title = 'Launch website';
+  select id into bd from mneme.tasks where note_id = n1 and title = 'Buy domain';
+  select id into pd from mneme.tasks where note_id = n1 and title = 'Point DNS';
+  select id into wa from mneme.tasks where note_id = n1 and title = 'Write About';
+  select id into pf from mneme.tasks where note_id = n1 and title = 'Pick favicon';
+  select id into ds from mneme.tasks where note_id = n1 and title = 'Draw sketch';
+  select id into t1 from mneme.tasks where note_id = n1 and title = 'Top step one';
+  select id into t2 from mneme.tasks where note_id = n1 and title = 'Top step two';
+
+  -- structure from the text
+  perform t.ok((select parent_id from mneme.tasks where id = bd) = lw, 'indentation makes a subtask');
+  perform t.ok((select parent_id from mneme.tasks where id = ds) = pf, 'deeper indentation nests further');
+  select sequence_id into s1 from mneme.tasks where id = bd;
+  perform t.ok(s1 is not null and (select sequence_id from mneme.tasks where id = pd) = s1, 'numbered siblings form one sequence');
+  perform t.ok((select title from mneme.task_sequences where id = s1) = 'Domain', 'a "Name:" line names the sequence');
+  select sequence_id into s2 from mneme.tasks where id = wa;
+  perform t.ok(s2 is not null and s2 <> s1 and (select title from mneme.task_sequences where id = s2) = 'Content', 'a plain line starts a new, parallel sequence');
+  perform t.ok((select sequence_id from mneme.tasks where id = pf) is null, 'a bullet sibling is a loose subtask');
+  perform t.ok((select blocked from mneme.tasks_active where id = pd) and not (select blocked from mneme.tasks_active where id = bd), 'note steps block in order');
+  perform t.ok((select parent_id from mneme.tasks where id = t1) is null and (select sequence_id from mneme.tasks where id = t2) is not null
+               and (select blocked from mneme.tasks_active where id = t2), 'a top-level numbered run is a sequence without a parent');
+  perform t.ok((select child_count from mneme.tasks_active where id = lw) = 4, 'the note parent counts its subtasks');
+
+  -- markers in the text set the state
+  update mneme.notes set content = replace(content, '1. [ ] Buy domain', '1. [/] Buy domain') where id = n1;
+  perform t.ok((select state from mneme.tasks where id = bd) = 'in_progress', '[/] means in progress');
+  update mneme.notes set content = replace(content, '- [ ] Pick favicon', '- [h] Pick favicon') where id = n1;
+  perform t.ok((select state from mneme.tasks where id = pf) = 'on_hold', '[h] means on hold');
+  update mneme.notes set content = replace(content, '1. [ ] Top step one', '1. [-] Top step one') where id = n1;
+  perform t.ok((select state from mneme.tasks where id = t1) = 'cancelled' and not (select blocked from mneme.tasks_active where id = t2),
+               '[-] means cancelled, and unblocks the next step');
+
+  -- identity survives restructuring
+  update mneme.tasks set due_date = today + 5 where id = ds;
+  update mneme.notes set content = replace(content, E'    - [ ] Draw sketch', E'- [ ] Draw sketch') where id = n1;
+  perform t.ok((select parent_id from mneme.tasks where id = ds) is null and (select due_date from mneme.tasks where id = ds) = today + 5,
+               'outdenting in the note keeps the same task (and its date)');
+  update mneme.notes set content = replace(content, E'\n- [ ] Draw sketch', E'\n    - [ ] Draw sketch') where id = n1;
+  perform t.ok((select parent_id from mneme.tasks where id = ds) = pf, 'indenting it back re-parents it');
+  perform t.ok((select due_date from mneme.tasks where id = pf) = today + 5, 'dates still push the note parent');
+
+  -- a save is never refused and never rewritten: roll-up from ticking in the note
+  update mneme.notes set content = replace(replace(replace(replace(content,
+           '1. [/] Buy domain', '1. [x] Buy domain'), '2. [ ] Point DNS', '2. [x] Point DNS'),
+           '1. [ ] Write About', '1. [x] Write About'), '- [h] Pick favicon', '- [x] Pick favicon') where id = n1;
+  update mneme.notes set content = replace(content, '    - [ ] Draw sketch', '    - [x] Draw sketch') where id = n1;
+  perform t.ok((select state from mneme.tasks where id = lw) = 'done', 'ticking every subtask in the note finishes the parent');
+  perform t.ok((select content from mneme.notes where id = n1) like E'Launch site\n- [ ] Launch website%', '…without rewriting the note being saved');
+
+  -- changes made elsewhere are written into the note
+  perform mneme.set_task_state(wa, 'open');
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c like E'%\n  1. [ ] Write About%', 'reopening from the Tasks page writes [ ]');
+  perform t.ok(c like E'%\n- [/] Launch website%', '…and the parent''s roll-up (in progress) is written too');
+  perform mneme.set_task_state(pd, 'on_hold');
+  perform t.ok((select content from mneme.notes where id = n1) like E'%  2. [h] Point DNS%', 'on hold is written as [h]');
+  perform mneme.set_task_state(pd, 'done');
+
+  -- adding from the Tasks page / board writes lines
+  perform mneme.add_subtask(lw, 'Buy hosting');
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c like E'%    - [x] Draw sketch\n  - [ ] Buy hosting\n1. [-] Top step one%', 'add_subtask appends an indented line under the parent''s block');
+  perform t.ok((select parent_id from mneme.tasks where note_id = n1 and title = 'Buy hosting') = lw, '…which becomes its subtask');
+  perform mneme.add_subtask(lw, 'Renew SSL', s1);
+  perform t.ok((select content from mneme.notes where id = n1) like E'%  2. [x] Point DNS\n  3. [ ] Renew SSL\n%', 'a step is added as the next number');
+  perform t.ok((select sequence_id from mneme.tasks where note_id = n1 and title = 'Renew SSL') = s1, '…into that sequence');
+  perform t.ok(mneme.add_sequence(lw, 'Launch day', 'Announce') is not null, 'add_sequence returns the new sequence');
+  perform t.ok((select content from mneme.notes where id = n1) like E'%  - [ ] Buy hosting\n  Launch day:\n  1. [ ] Announce\n%', 'a sequence is written as "Name:" + "1. [ ] step"');
+  perform t.ok((select s.title from mneme.tasks t join mneme.task_sequences s on s.id = t.sequence_id where t.note_id = n1 and t.title = 'Announce') = 'Launch day',
+               '…and read back as a sequence');
+  perform mneme.rename_task(pd, 'Point DNS to Vercel');
+  perform t.ok((select content from mneme.notes where id = n1) like E'%  2. [x] Point DNS to Vercel\n%', 'rename keeps the numbered prefix and marker');
+
+  -- guards: the note arranges its own tasks
+  perform t.ok(t.throws(format('update mneme.tasks set parent_id = null where id = %L', bd)), 'a note task can''t be re-parented directly');
+  perform t.ok(t.throws(format('insert into mneme.tasks (source, title, sequence_id) values (%L, %L, %L)', 'standalone', 'x', s1)),
+               'a standalone task can''t join a note''s sequence directly');
+
+  -- moves
+  perform mneme.move_task(ds, lw);
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c like E'%  1. [ ] Announce\n  - [x] Draw sketch\n1. [-] Top step one%' and (select parent_id from mneme.tasks where id = ds) = lw,
+               'moving within a note moves and re-indents the line');
+  insert into mneme.notes (content) values (E'Budget\n- [ ] Costs') returning id into n2;
+  select id into x from mneme.tasks where note_id = n2 and title = 'Costs';
+  perform mneme.move_task(pf, x);
+  perform t.ok((select content from mneme.notes where id = n2) = E'Budget\n- [x] Costs\n  - [x] Pick favicon', 'moving into another note writes it there (its only, done subtask finishes Costs)');
+  perform t.ok((select content from mneme.notes where id = n1) like
+               format(E'%%  - ↗ Pick favicon → [[%s]]\n%%', (select public_id from mneme.notes where id = n2)), '…and leaves a link line behind');
+  perform t.ok((select note_id from mneme.tasks where id = pf) = n2 and (select parent_id from mneme.tasks where id = pf) = x, '…keeping the same task');
+  perform t.ok(exists (select 1 from mneme.task_links where from_task_id = lw and to_task_id = pf and kind = 'related'), '…with a dotted link from its old parent');
+  insert into mneme.tasks (source, title) values ('standalone', 'Board parent') returning id into y;
+  perform mneme.move_task(pf, y);
+  perform t.ok((select source from mneme.tasks where id = pf) = 'standalone' and (select parent_id from mneme.tasks where id = pf) = y,
+               'moving out of notes makes it a standalone task');
+  perform t.ok((select content from mneme.notes where id = n2) = format(E'Budget\n- [x] Costs\n  - ↗ Pick favicon → [[%s]]', mneme.task_code(pf)),
+               '…leaving a [[T-…]] link line');
+  perform t.ok((select id from mneme.find_task(mneme.task_code(pf))) = pf, 'find_task resolves a T- code');
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Sub of board', y) returning id into x;
+  perform mneme.move_task(y, lw);
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c like E'%  - [/] Board parent\n    - [x] Pick favicon\n    - [ ] Sub of board\n%', 'moving a standalone task into a note writes its subtree');
+  perform t.ok((select source from mneme.tasks where id = x) = 'note' and (select parent_id from mneme.tasks where id = x) = y
+               and (select parent_id from mneme.tasks where id = y) = lw, '…keeping the same tasks and shape');
+  perform mneme.move_task(y, null);
+  perform t.ok((select content from mneme.notes where id = n1) like E'%  - [x] Draw sketch\n- [/] Board parent\n  - [x] Pick favicon\n  - [ ] Sub of board\n1. [-] Top step one%',
+               'moving a note task to the top outdents it, right after its old tree');
+  perform t.ok((select parent_id from mneme.tasks where id = y) is null and (select source from mneme.tasks where id = y) = 'note', '…as a main task still in the note');
+
+  -- delete takes the indented block with it
+  perform mneme.delete_task(y);
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c not like '%Board parent%' and c not like '%Sub of board%', 'deleting a note task removes its indented block');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(t.throws(format('select mneme.move_task(%L, null)', lw)), 'B can''t move A''s task');
+  perform t.ok(t.throws(format('select mneme.add_subtask(%L, %L)', lw, 'x')), 'B can''t add to A''s task');
+  perform t.ok(not exists (select 1 from mneme.find_task(mneme.task_code(lw))), 'B can''t find A''s task by code');
+  perform t.logout();
+end $$;
+
+-- ================================================================ board ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        r1 uuid; r2 uuid; k uuid; o uuid; cv uuid; j jsonb;
+begin
+  perform t.login(a);
+  delete from mneme.canvas_tasks; delete from mneme.canvases;
+  insert into mneme.canvases (name) values ('Travel') returning id into cv;
+  insert into mneme.tasks (source, title) values ('standalone', 'Inbox root') returning id into r1;
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Inbox kid', r1) returning id into k;
+  insert into mneme.tasks (source, title) values ('standalone', 'Visa') returning id into o;
+  insert into mneme.canvas_tasks (canvas_id, task_id) values (cv, o);
+  insert into mneme.task_links (from_task_id, to_task_id) values (o, k);
+  insert into mneme.tasks (source, title, state) values ('standalone', 'Finished root', 'done') returning id into r2;
+  insert into mneme.board_positions (board, task_id, x, y) values ('inbox', r1, 10, 20);
+
+  j := mneme.board_data(null);
+  perform t.ok(exists (select 1 from jsonb_array_elements(j->'tasks') e where e->>'id' = r1::text)
+               and exists (select 1 from jsonb_array_elements(j->'tasks') e where e->>'id' = k::text), 'Inbox board has main tasks on no canvas, with subtasks');
+  perform t.ok(not exists (select 1 from jsonb_array_elements(j->'tasks') e where e->>'id' in (o::text, r2::text)),
+               'Inbox skips canvas tasks and finished ones');
+  perform t.ok(exists (select 1 from jsonb_array_elements(mneme.board_data(null, true)->'tasks') e where e->>'id' = r2::text), '…finished ones on request');
+  perform t.ok(j->'positions'->r1::text = '{"x": 10, "y": 20}'::jsonb, 'saved positions come back');
+  perform t.ok((select e->'other'->'canvases'->0->>'name' from jsonb_array_elements(j->'links') e where e->>'to_task_id' = k::text) = 'Travel',
+               'a link''s far end carries its canvases');
+  j := mneme.board_data(cv);
+  perform t.ok(jsonb_array_length(j->'tasks') = 1 and j->'tasks'->0->>'id' = o::text, 'a canvas board has its own main tasks');
+  perform t.ok(t.throws(format('insert into mneme.board_positions (board, task_id, x, y) values (%L, %L, 0, 0)', 'nope', r1)), 'board key is checked');
+  delete from mneme.canvases where id = cv;
+  perform t.ok(not exists (select 1 from mneme.board_positions where board = cv::text), 'deleting a canvas drops its layout');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(not exists (select 1 from jsonb_array_elements(mneme.board_data(null)->'tasks') e where e->>'user_id' = a::text), 'B sees nothing of A''s board');
+  perform t.ok(t.throws(format('insert into mneme.board_positions (board, task_id, x, y) values (%L, %L, 0, 0)', 'inbox', r1)), 'B can''t place A''s task');
   perform t.logout();
 end $$;
 

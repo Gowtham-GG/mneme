@@ -15,6 +15,7 @@ import { NotePage } from '@/pages/NotePage'
 
 // Secondary screens load on demand to keep first paint and capture fast.
 const Tasks = lazy(() => import('@/pages/Tasks').then((m) => ({ default: m.Tasks })))
+const Board = lazy(() => import('@/pages/Board').then((m) => ({ default: m.Board })))
 const Search = lazy(() => import('@/pages/Search').then((m) => ({ default: m.Search })))
 const TagIndex = lazy(() => import('@/pages/Index').then((m) => ({ default: m.TagIndex })))
 const TagPage = lazy(() => import('@/pages/TagPage').then((m) => ({ default: m.TagPage })))
@@ -48,6 +49,7 @@ export default function App() {
                     </Route>
                     <Route path="inbox" element={<Inbox />} />
                     <Route path="tasks" element={<Tasks />} />
+                    <Route path="tasks/board" element={<Board />} />
                     <Route path="habits" element={<Habits />} />
                     <Route path="search" element={<Search />} />
                     <Route path="tags" element={<TagIndex />} />

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { addStandaloneTask, clearCompletedTasks, listTasks, searchTasks } from '@/api/tasks'
+import { addStandaloneTask, clearCompletedTasks, findTask, listTasks, searchTasks } from '@/api/tasks'
 import { ConfirmDialog } from '@/components/Dialog'
 import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
@@ -9,7 +9,8 @@ import { useToast } from '@/contexts/ToastContext'
 import { todayKey } from '@/lib/dates'
 import { Card } from '@/components/Card'
 import { TaskNode } from '@/components/tasks/TaskNode'
-import { TaskUiProvider } from '@/components/tasks/TaskUi'
+import { TaskUiProvider, useTaskUi } from '@/components/tasks/TaskUi'
+import { ViewToggle } from '@/components/tasks/ViewToggle'
 import type { TaskItem, TaskBucket } from '@/types/db'
 import { IconSearch, IconX } from '@/components/icons'
 
@@ -17,6 +18,22 @@ function TaskList({ items, empty }: { items: TaskItem[] | undefined; empty: stri
   if (!items) return <div className="skeleton h-10" />
   if (!items.length) return <p className="px-2 py-3 text-sm text-faint">{empty}</p>
   return <ul className="-mx-2">{items.map((t) => <TaskNode key={t.id} t={t} />)}</ul>
+}
+
+/** /tasks?task=T-1A2B3C4D (a [[T-…]] link in a note) opens that task's whole tree. */
+function TaskDeepLink() {
+  const [sp, setSp] = useSearchParams()
+  const ui = useTaskUi()
+  const { toast } = useToast()
+  const code = sp.get('task')
+  useEffect(() => {
+    if (!code) return
+    const next = new URLSearchParams(sp)
+    next.delete('task')
+    setSp(next, { replace: true })
+    findTask(code).then((f) => (f ? ui.openTree(f.root_id, f.id) : toast('That task is gone.', { kind: 'error' })), () => toast('Couldn’t open the task.', { kind: 'error' }))
+  }, [code]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
 }
 
 const TABS: { id: TaskBucket; label: string; empty: string }[] = [
@@ -58,10 +75,14 @@ export function Tasks() {
 
   return (
     <TaskUiProvider>
+    <TaskDeepLink />
     <div className="h-full overflow-y-auto">
       <div className="page-top mx-auto max-w-3xl px-4 pb-32 lg:px-6 lg:pb-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-[28px] font-semibold leading-tight">Tasks</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-[28px] font-semibold leading-tight">Tasks</h1>
+            <ViewToggle />
+          </div>
           <label className="glass flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-xl px-3 py-2 sm:max-w-xs">
             <IconSearch size={16} className="shrink-0 text-faint" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks" aria-label="Search tasks"

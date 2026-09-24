@@ -1,7 +1,7 @@
 import { Fragment, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { parseBlocks, type Block, type Inline } from '@/lib/markdown'
-import { IconCheck } from './icons'
+import { IconCheck, IconX } from './icons'
 
 interface Props {
   content: string
@@ -28,7 +28,7 @@ function Inlines({ nodes, resolveTitle }: { nodes: Inline[]; resolveTitle?: Prop
           case 'tag': return <Link key={i} to={`/tags/${n.name}`} className="rounded bg-accent-soft px-1 text-[0.9em] text-accent no-underline">#{n.name}</Link>
           case 'id': return <Link key={i} to={`/n/${n.id}`} className="font-sans text-[0.85em] tabular-nums">{n.id}</Link>
           case 'noteLink': {
-            const to = n.isId ? `/n/${n.ref}` : resolveTitle?.(n.ref) ?? `/search?q=${encodeURIComponent(n.ref)}`
+            const to = n.isTask ? `/tasks?task=${n.ref}` : n.isId ? `/n/${n.ref}` : resolveTitle?.(n.ref) ?? `/search?q=${encodeURIComponent(n.ref)}`
             return <Link key={i} to={to} className="rounded bg-accent-soft px-1 text-accent no-underline">↗ {n.label}</Link>
           }
         }
@@ -57,21 +57,27 @@ function BlockView({ b, onToggleTask, resolveTitle }: { b: Block } & Pick<Props,
     case 'item': {
       const pad = { paddingLeft: `${b.indent * 1.25}rem` }
       if (b.task) {
-        const done = b.task.done
+        const { done, state } = b.task
+        const label = state === 'open' ? 'Mark task as done' : done ? 'Mark task as not done' : `${state === 'in_progress' ? 'In progress' : 'On hold'} — mark as done`
         return (
           <div className="flex items-start gap-2" style={pad}>
             <button
               type="button"
               role="checkbox"
               aria-checked={done}
-              aria-label={done ? 'Mark task as not done' : 'Mark task as done'}
+              aria-label={label}
               disabled={!onToggleTask}
               onClick={() => onToggleTask?.(b.line, !done)}
-              className={`mt-[0.28em] inline-flex size-[1.05em] shrink-0 items-center justify-center rounded-[4px] border ${done ? 'border-task bg-task text-bg' : 'border-faint text-transparent hover:border-task'}`}
+              className={`mt-[0.28em] inline-flex size-[1.05em] shrink-0 items-center justify-center rounded-[4px] border ${
+                state === 'done' ? 'border-task bg-task text-bg' : state === 'cancelled' ? 'border-faint text-faint'
+                : state === 'in_progress' ? 'border-accent' : state === 'on_hold' ? 'border-important' : 'border-faint text-transparent hover:border-task'}`}
             >
-              {done && <IconCheck size={12} strokeWidth={3} />}
+              {state === 'done' && <IconCheck size={12} strokeWidth={3} />}
+              {state === 'cancelled' && <IconX size={11} strokeWidth={2.5} />}
+              {state === 'in_progress' && <span className="size-1.5 rounded-full bg-accent" />}
+              {state === 'on_hold' && <span className="h-[0.5em] w-[0.35em] border-x-2 border-important" />}
             </button>
-            <span className={done ? 'text-faint line-through' : ''}><Inlines nodes={b.c} resolveTitle={resolveTitle} /></span>
+            <span className={done ? 'text-faint line-through' : state === 'on_hold' ? 'text-muted' : ''}><Inlines nodes={b.c} resolveTitle={resolveTitle} /></span>
           </div>
         )
       }

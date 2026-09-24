@@ -24,6 +24,13 @@ export async function addStandaloneTask(title: string, due_date: string | null =
   if (error) throw toError(error)
 }
 
+/** A new main task; returns its id (the board places it). */
+export async function createTask(title: string): Promise<string> {
+  const { data, error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim() }).select('id').single()
+  if (error) throw toError(error)
+  return (data as { id: string }).id
+}
+
 export async function updateTask(
   id: string,
   patch: { due_date?: string | null; due_time?: string | null; priority?: TaskPriority | null; title?: string },
@@ -76,25 +83,39 @@ export async function getTaskTree(rootId: string): Promise<TaskTree> {
   return data as TaskTree
 }
 
-/** A loose subtask, or a step appended to `sequenceId` (which decides the parent). */
+/** A loose subtask, or the next step of `sequenceId`. Under a task written in a note, the line is added to the note. */
 export async function addSubtask(parentId: string, title: string, sequenceId: string | null = null): Promise<void> {
-  const row: Record<string, string> = { source: 'standalone', title: title.trim() }
-  if (sequenceId) row.sequence_id = sequenceId
-  else row.parent_id = parentId
-  const { error } = await supabase.from('tasks').insert(row)
+  const { error } = await supabase.rpc('add_subtask', { p_parent: parentId, p_title: title.trim(), p_sequence: sequenceId })
   if (error) throw toError(error)
 }
 
-/** Re-home a task: new parent (null = main task), into/out of a sequence, or a new position. */
-export async function moveTask(id: string, patch: { parent_id?: string | null; sequence_id?: string | null; sort_order?: number }): Promise<void> {
-  const { error } = await supabase.from('tasks').update(patch).eq('id', id)
+/** A sequence with its first step (a note task gets "Name:" + "1. [ ] step" lines). */
+export async function addSequence(parentId: string, title: string | null, firstStep: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('add_sequence', { p_parent: parentId, p_title: title?.trim() || null, p_first_step: firstStep.trim() })
+  if (error) throw toError(error)
+  return (data as string | null) ?? null
+}
+
+/**
+ * Put a task (with its subtasks) under `parentId` (null = a main task), optionally into one of
+ * its sequences. Note text follows: lines move, or a link line is left where it came from.
+ */
+export async function moveUnder(id: string, parentId: string | null, sequenceId: string | null = null): Promise<void> {
+  const { error } = await supabase.rpc('move_task', { p_task: id, p_parent: parentId, p_sequence: sequenceId })
   if (error) throw toError(error)
 }
 
-export async function addSequence(taskId: string, title: string | null): Promise<string> {
-  const { data, error } = await supabase.from('task_sequences').insert({ task_id: taskId, title: title?.trim() || null }).select('id').single()
+/** New position among its siblings (tasks created on the Tasks page / board). */
+export async function reorderTask(id: string, sortOrder: number): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ sort_order: sortOrder }).eq('id', id)
   if (error) throw toError(error)
-  return (data as { id: string }).id
+}
+
+/** A [[T-…]] code -> the task and the main task of its tree. */
+export async function findTask(code: string): Promise<{ id: string; root_id: string } | null> {
+  const { data, error } = await supabase.rpc('find_task', { p_code: code })
+  if (error) throw toError(error)
+  return ((data as { id: string; root_id: string }[]) ?? [])[0] ?? null
 }
 
 export async function renameSequence(id: string, title: string | null): Promise<void> {
@@ -151,5 +172,16 @@ export async function setTaskOnCanvas(taskId: string, canvasId: string, on: bool
   const { error } = on
     ? await supabase.from('canvas_tasks').upsert({ canvas_id: canvasId, task_id: taskId }, { onConflict: 'canvas_id,task_id', ignoreDuplicates: true })
     : await supabase.from('canvas_tasks').delete().eq('canvas_id', canvasId).eq('task_id', taskId)
+  if (error) throw toError(error)
+}
+
+export async function renameCanvas(id: string, name: string): Promise<void> {
+  const { error } = await supabase.from('canvases').update({ name: name.trim() }).eq('id', id)
+  if (error) throw toError(error)
+}
+
+/** Its tasks stay; ones on no other canvas go back to the Inbox. */
+export async function deleteCanvas(id: string): Promise<void> {
+  const { error } = await supabase.from('canvases').delete().eq('id', id)
   if (error) throw toError(error)
 }

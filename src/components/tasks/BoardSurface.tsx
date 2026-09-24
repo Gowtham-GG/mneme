@@ -1,0 +1,405 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { savePositions } from '@/api/board'
+import { createTask, setTaskOnCanvas } from '@/api/tasks'
+import { ruleMessage } from '@/api/errors'
+import { Dialog } from '@/components/Dialog'
+import { useSettings } from '@/contexts/SettingsContext'
+import { useToast } from '@/contexts/ToastContext'
+import {
+  boardEdges, boundsOf, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, portalPositions,
+  PORTAL_H, PORTAL_W, type BoardData, type EdgeKind, type Portal, type Pt,
+} from '@/lib/board'
+import { formatDueDate, taskDueStatus } from '@/lib/dates'
+import { childrenOf, descendantIds, isResolved, STATES } from '@/lib/taskTree'
+import { TaskNode } from './TaskNode'
+import { useTaskUi } from './TaskUi'
+import type { TaskItem } from '@/types/db'
+import { IconCheck, IconLock, IconPlus, IconX } from '@/components/icons'
+
+type View = { x: number; y: number; k: number }
+type Gesture =
+  | { mode: 'none' }
+  | { mode: 'pan'; sx: number; sy: number; view0: View; moved: boolean }
+  | { mode: 'drag'; id: string; sx: number; sy: number; start: Record<string, Pt>; moved: boolean }
+  | { mode: 'connect'; from: string; sx: number; sy: number; moved: boolean }
+  | { mode: 'pinch'; d0: number; mid0: Pt; view0: View }
+
+const clampK = (k: number) => Math.min(2, Math.max(0.3, k))
+const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
+const mid = (a: Pt, b: Pt) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
+/**
+ * A touch tap handled on pointerup is followed by the browser's own click — which would land on
+ * whatever just opened under the finger (the Connect chooser, the card's delete button). Eat it.
+ */
+function swallowNextClick() {
+  const h = (e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); off() }
+  const off = () => document.removeEventListener('click', h, true)
+  document.addEventListener('click', h, true)
+  setTimeout(off, 500)
+}
+const short = (s: string) => (s.length > 40 ? `${s.slice(0, 39)}…` : s)
+
+const EDGE: Record<EdgeKind, { stroke: string; dash?: string; width: number; marker?: string }> = {
+  tree: { stroke: 'var(--faint)', width: 1.5 },
+  step: { stroke: 'var(--accent)', width: 2, marker: 'url(#arr-step)' },
+  blocks: { stroke: 'var(--important)', dash: '6 4', width: 1.75, marker: 'url(#arr-blocks)' },
+  related: { stroke: 'var(--faint)', dash: '2 4', width: 1.5 },
+}
+const BORDER: Record<TaskItem['state'], string> = {
+  open: 'border-l-line', in_progress: 'border-l-accent', on_hold: 'border-l-important', done: 'border-l-task', cancelled: 'border-l-faint',
+}
+
+function BoardBox({ t, at, dim, selected, connecting }: { t: TaskItem; at: Pt; dim: boolean; selected: boolean; connecting: boolean }) {
+  const ui = useTaskUi()
+  const { timezone: tz } = useSettings()
+  const resolved = isResolved(t.state)
+  const waiting = !resolved && t.child_count > t.child_resolved
+  const due = t.due_date ? taskDueStatus(t.due_date, t.due_time, tz) : null
+  return (
+    <div
+      data-box={t.id} role="button" tabIndex={0} aria-label={t.title} aria-pressed={selected}
+      className={`absolute flex cursor-grab flex-col justify-between rounded-xl border border-l-4 border-line bg-raised px-2.5 py-1.5 shadow-sm transition-opacity active:cursor-grabbing ${BORDER[t.state]} ${selected || connecting ? 'ring-2 ring-accent' : ''} ${dim ? 'opacity-25' : ''}`}
+      style={{ left: at.x, top: at.y, width: BOX_W, height: BOX_H }}
+    >
+      <div className="flex min-w-0 items-start gap-1.5">
+        {t.blocked && !resolved ? (
+          <span className="mt-0.5 shrink-0 text-faint" title="Blocked — waiting on what comes first" aria-label="Blocked"><IconLock size={13} /></span>
+        ) : (
+          <button type="button" role="checkbox" aria-checked={resolved} aria-label={`${resolved ? 'Reopen' : 'Complete'}: ${t.title}`}
+            disabled={waiting} title={waiting ? 'Finishes when its subtasks do' : undefined} onClick={() => void ui.act.tick(t, !resolved)}
+            className={`mt-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border disabled:opacity-40 ${t.state === 'done' ? 'border-task bg-task text-bg' : 'border-faint'}`}>
+            {t.state === 'done' && <IconCheck size={10} strokeWidth={3} />}
+            {t.state === 'cancelled' && <IconX size={9} strokeWidth={3} />}
+          </button>
+        )}
+        <span className={`line-clamp-2 text-[13px] leading-snug ${resolved ? 'text-faint line-through' : t.blocked ? 'text-muted' : ''}`}>{t.title}</span>
+      </div>
+      <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] text-faint">
+        {t.state !== 'open' && !resolved && <span className={t.state === 'in_progress' ? 'text-accent' : 'text-important'}>{STATES.find((s) => s.id === t.state)?.label}</span>}
+        {t.child_count > 0 && <span className="tabular-nums text-task">{t.child_resolved}/{t.child_count}</span>}
+        {t.due_date && <span className={due === 'overdue' ? 'text-danger' : ''}>{formatDueDate(t.due_date, tz)}</span>}
+        {t.note_public_id && <span className="tabular-nums">{t.note_public_id}</span>}
+      </div>
+      <button type="button" data-handle={t.id} aria-label={`Connect “${t.title}” to…`} title="Drag to another task (or tap, then tap it)"
+        className="absolute -right-2.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full">
+        <span className="size-2.5 rounded-full border-2 border-accent bg-bg" />
+      </button>
+    </div>
+  )
+}
+
+function PortalBox({ p, at, dim, onGo }: { p: Portal; at: Pt; dim: boolean; onGo: (canvasId: string | null, taskId: string) => void }) {
+  const o = p.link.other
+  const c = o.canvases?.[0]
+  return (
+    <button type="button" data-portal
+      className={`absolute flex items-center gap-1 rounded-full border border-dashed border-line bg-panel px-2.5 text-[11px] hover:border-accent ${dim ? 'opacity-25' : ''}`}
+      style={{ left: at.x, top: at.y, width: PORTAL_W, height: PORTAL_H }}
+      title={`Open on ${c?.name ?? 'Inbox'}`} onClick={() => onGo(c?.id ?? null, o.id)}>
+      <span aria-hidden>{p.kind === 'related' ? '↔' : p.outgoing ? '→' : '←'}</span>
+      <span className={`min-w-0 flex-1 truncate text-left ${isResolved(o.state) ? 'line-through' : ''}`}>{o.title}</span>
+      <span className="shrink-0 text-faint">{c?.name ?? 'Inbox'}</span>
+    </button>
+  )
+}
+
+export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDone, setShowDone }: {
+  data: BoardData; board: string; canvasId: string | null
+  focus: string | null; onFocusDone: () => void
+  showDone: boolean; setShowDone: (v: boolean) => void
+}) {
+  const ui = useTaskUi()
+  const navigate = useNavigate()
+  const { toast } = useToast()
+  const ref = useRef<HTMLDivElement>(null)
+  const [view, setView] = useState<View>({ x: 32, y: 32, k: 1 })
+  const [over, setOver] = useState<Record<string, Pt>>({})
+  const [sel, setSel] = useState<string | null>(null)
+  // at = the rubber band's end while dragging; null = waiting for a tap on the other task
+  const [connect, setConnect] = useState<{ from: string; at: Pt | null } | null>(null)
+  const [ask, setAsk] = useState<{ a: TaskItem; b: TaskItem } | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+  const g = useRef<Gesture>({ mode: 'none' })
+  const pts = useRef(new Map<number, Pt>())
+  const fitted = useRef<string | null>(null)
+
+  useEffect(() => setOver({}), [data])
+  const byId = useMemo(() => new Map(data.tasks.map((t) => [t.id, t])), [data])
+  const drawn = useMemo(() => drawnPositions(data, over), [data, over])
+  const { edges, portals } = useMemo(() => boardEdges(data), [data])
+  const portalAt = useMemo(() => portalPositions(portals, drawn), [portals, drawn])
+  const chain = useMemo(() => (sel && byId.has(sel) ? chainOf(data, sel) : null), [data, sel, byId])
+  const selTask = sel ? byId.get(sel) : undefined
+
+  const rect = () => ref.current!.getBoundingClientRect()
+  const fit = () => {
+    const r = rect()
+    // phones keep text readable and pan instead
+    setView(fitView(boundsOf([...drawn.values(), ...portalAt.values()]), r.width, r.height, r.width < 640 ? 0.6 : 0.3))
+  }
+  // fit once per board
+  useEffect(() => {
+    if (fitted.current === board || !ref.current) return
+    fitted.current = board
+    fit()
+  }) // eslint-disable-line react-hooks/exhaustive-deps
+  // arriving from a link box on another board: select and centre the task
+  useEffect(() => {
+    if (!focus || !ref.current) return
+    const p = drawn.get(focus)
+    if (!p) return
+    const r = rect()
+    setSel(focus)
+    setView((v) => ({ ...v, x: r.width / 2 - (p.x + BOX_W / 2) * v.k, y: r.height / 3 - (p.y + BOX_H / 2) * v.k }))
+    onFocusDone()
+  }, [focus, drawn]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // wheel: pan; ctrl/⌘ + wheel (and trackpad pinch): zoom at the pointer
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const h = (e: WheelEvent) => {
+      if ((e.target as HTMLElement).closest('[data-card]')) return
+      e.preventDefault()
+      const r = el.getBoundingClientRect()
+      setView((v) => {
+        if (!e.ctrlKey && !e.metaKey) return { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }
+        const k = clampK(v.k * Math.exp(-e.deltaY * 0.01))
+        const mx = e.clientX - r.left, my = e.clientY - r.top
+        return { k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k }
+      })
+    }
+    el.addEventListener('wheel', h, { passive: false })
+    return () => el.removeEventListener('wheel', h)
+  }, [])
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { setConnect(null); setSel(null) } }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
+
+  const toWorld = (cx: number, cy: number): Pt => { const r = rect(); return { x: (cx - r.left - view.x) / view.k, y: (cy - r.top - view.y) / view.k } }
+  const zoomBy = (f: number) => {
+    const r = rect()
+    setView((v) => { const k = clampK(v.k * f), mx = r.width / 2, my = r.height / 2; return { k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k } })
+  }
+
+  const tapBox = (id: string) => {
+    if (connect && connect.at === null) {
+      if (connect.from !== id) setAsk({ a: byId.get(connect.from)!, b: byId.get(id)! })
+      setConnect(null)
+    } else setSel(id)
+  }
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    const el = e.target as HTMLElement
+    const handle = el.closest<HTMLElement>('[data-handle]')
+    if (!handle && el.closest('button, input, a, select, textarea, [data-card], [data-ui]')) return
+    pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    ref.current!.setPointerCapture(e.pointerId)
+    if (pts.current.size === 2) {
+      const [p1, p2] = [...pts.current.values()]
+      g.current = { mode: 'pinch', d0: dist(p1, p2), mid0: mid(p1, p2), view0: view }
+      setOver({})
+      return
+    }
+    if (pts.current.size > 2) return
+    const box = el.closest<HTMLElement>('[data-box]')
+    if (handle) { g.current = { mode: 'connect', from: handle.dataset.handle!, sx: e.clientX, sy: e.clientY, moved: false }; return }
+    if (box) {
+      const id = box.dataset.box!
+      // the box and any of its subtasks that were placed by hand move together (the rest follow anyway)
+      const ids = [id, ...[...descendantIds(data, id)].filter((d) => data.positions[d])]
+      g.current = { mode: 'drag', id, sx: e.clientX, sy: e.clientY, start: Object.fromEntries(ids.map((i) => [i, drawn.get(i)!])), moved: false }
+      return
+    }
+    g.current = { mode: 'pan', sx: e.clientX, sy: e.clientY, view0: view, moved: false }
+  }
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!pts.current.has(e.pointerId)) return
+    pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const s = g.current
+    if (s.mode === 'pinch') {
+      if (pts.current.size < 2) return
+      const [p1, p2] = [...pts.current.values()]
+      const r = rect()
+      const k = clampK((s.view0.k * dist(p1, p2)) / s.d0)
+      const m0 = { x: s.mid0.x - r.left, y: s.mid0.y - r.top }, m = mid(p1, p2)
+      const wx = (m0.x - s.view0.x) / s.view0.k, wy = (m0.y - s.view0.y) / s.view0.k
+      setView({ k, x: m.x - r.left - wx * k, y: m.y - r.top - wy * k })
+      return
+    }
+    if (s.mode === 'none') return
+    const dx = e.clientX - s.sx, dy = e.clientY - s.sy
+    if (Math.hypot(dx, dy) > 4) s.moved = true
+    if (!s.moved) return
+    if (s.mode === 'pan') setView({ ...s.view0, x: s.view0.x + dx, y: s.view0.y + dy })
+    else if (s.mode === 'drag') setOver(Object.fromEntries(Object.entries(s.start).map(([i, p]) => [i, { x: p.x + dx / view.k, y: p.y + dy / view.k }])))
+    else if (s.mode === 'connect') setConnect({ from: s.from, at: toWorld(e.clientX, e.clientY) })
+  }
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!pts.current.delete(e.pointerId)) return
+    const s = g.current
+    if (s.mode === 'pinch') { if (pts.current.size === 0) g.current = { mode: 'none' }; return }
+    g.current = { mode: 'none' }
+    if (s.mode !== 'none') swallowNextClick()
+    if (s.mode === 'drag') {
+      if (!s.moved) return tapBox(s.id)
+      const dx = (e.clientX - s.sx) / view.k, dy = (e.clientY - s.sy) / view.k
+      const spots = Object.entries(s.start).map(([task_id, p]) => ({ task_id, x: p.x + dx, y: p.y + dy }))
+      savePositions(board, spots).then(ui.act.refresh, () => { setOver({}); toast('Couldn’t save the layout.', { kind: 'error' }) })
+    } else if (s.mode === 'pan') {
+      if (!s.moved) { if (connect) setConnect(null); else setSel(null) }
+    } else if (s.mode === 'connect') {
+      if (!s.moved) { setSel(null); setConnect({ from: s.from, at: null }); return }
+      setConnect(null)
+      const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-box]')
+      if (hit && hit.dataset.box !== s.from) setAsk({ a: byId.get(s.from)!, b: byId.get(hit.dataset.box!)! })
+    }
+  }
+  const onPointerCancel = (e: React.PointerEvent) => {
+    pts.current.delete(e.pointerId)
+    g.current = { mode: 'none' }
+    setOver({})
+    setConnect((c) => (c?.at ? null : c))
+  }
+
+  const addTask = async () => {
+    const title = draft.trim()
+    if (!title) return
+    try {
+      const id = await createTask(title)
+      if (canvasId) await setTaskOnCanvas(id, canvasId, true)
+      const r = rect()
+      const c = toWorld(r.left + r.width / 2, r.top + r.height / 3)
+      await savePositions(board, [{ task_id: id, x: c.x - BOX_W / 2, y: c.y - BOX_H / 2 }])
+      setDraft('')
+      setAdding(false)
+      ui.act.refresh()
+      setSel(id)
+    } catch (err) { toast(ruleMessage(err, 'Couldn’t add the task.'), { kind: 'error' }) }
+  }
+
+  const goTo = (cid: string | null, taskId: string) => navigate(`/tasks/board?canvas=${cid ?? 'inbox'}&focus=${taskId}`)
+  const siblingsOf = (t: TaskItem) => {
+    if (!t.parent_id) return {}
+    const k = childrenOf(data, t.parent_id)
+    return { siblings: t.sequence_id ? k.sequences.find((s) => s.seq.id === t.sequence_id)?.steps : k.loose, parentSeqs: k.sequences.map((s) => s.seq) }
+  }
+  const lit = (a: string, b: string) => !chain || (chain.has(a) && chain.has(b))
+  const btn = 'glass-strong rounded-full px-3 py-1.5 text-sm hover:bg-hover'
+
+  return (
+    <div ref={ref} className="relative h-full w-full touch-none select-none overflow-hidden"
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
+      <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+        <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1" aria-hidden>
+          <defs>
+            <marker id="arr-step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" style={{ fill: 'var(--accent)' }} />
+            </marker>
+            <marker id="arr-blocks" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" style={{ fill: 'var(--important)' }} />
+            </marker>
+          </defs>
+          {edges.map((e) => {
+            const a = drawn.get(e.from), b = drawn.get(e.to)
+            if (!a || !b) return null
+            const st = EDGE[e.kind]
+            return <path key={e.id} d={edgePath(a, BOX_W, BOX_H, b, BOX_W, BOX_H)} fill="none" style={{ stroke: st.stroke }} strokeWidth={st.width}
+              strokeDasharray={st.dash} markerEnd={st.marker} opacity={lit(e.from, e.to) ? 1 : 0.12} />
+          })}
+          {portals.map((p) => {
+            const a = drawn.get(p.taskId), b = portalAt.get(p.id)
+            if (!a || !b) return null
+            const st = EDGE[p.kind]
+            return <path key={p.id} d={p.outgoing ? edgePath(a, BOX_W, BOX_H, b, PORTAL_W, PORTAL_H) : edgePath(b, PORTAL_W, PORTAL_H, a, BOX_W, BOX_H)} fill="none"
+              style={{ stroke: st.stroke }} strokeWidth={st.width} strokeDasharray={st.dash} markerEnd={st.marker} opacity={!chain || chain.has(p.taskId) ? 1 : 0.12} />
+          })}
+          {connect?.at && drawn.get(connect.from) && (
+            <path d={`M ${drawn.get(connect.from)!.x + BOX_W} ${drawn.get(connect.from)!.y + BOX_H / 2} L ${connect.at.x} ${connect.at.y}`}
+              style={{ stroke: 'var(--accent)' }} strokeWidth={2} strokeDasharray="4 4" />
+          )}
+        </svg>
+        {data.tasks.map((t) => (
+          <BoardBox key={t.id} t={t} at={drawn.get(t.id)!} dim={!!chain && !chain.has(t.id)} selected={sel === t.id} connecting={connect?.from === t.id} />
+        ))}
+        {portals.map((p) => portalAt.get(p.id) && <PortalBox key={p.id} p={p} at={portalAt.get(p.id)!} dim={!!chain && !chain.has(p.taskId)} onGo={goTo} />)}
+      </div>
+
+      {/* tools */}
+      <div data-ui className="absolute left-2 top-2 flex flex-wrap items-center gap-1.5">
+        {adding ? (
+          <form className="glass-strong flex items-center gap-1 rounded-full py-1 pl-3 pr-1" onSubmit={(e) => { e.preventDefault(); void addTask() }}>
+            <input autoFocus value={draft} maxLength={500} onChange={(e) => setDraft(e.target.value)} placeholder="New task" aria-label="New task"
+              onKeyDown={(e) => { if (e.key === 'Escape') setAdding(false) }} onBlur={() => { if (!draft.trim()) setAdding(false) }}
+              className="w-40 bg-transparent text-sm outline-none sm:w-56" />
+            <button disabled={!draft.trim()} className="rounded-full bg-accent px-3 py-1 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
+          </form>
+        ) : (
+          <button className={`${btn} flex items-center gap-1`} onClick={() => setAdding(true)}><IconPlus size={14} /> Task</button>
+        )}
+        {canvasId && (
+          <button className={btn} onClick={() => ui.pick({
+            title: 'Add to this canvas', exclude: new Set(data.tasks.map((t) => t.id)), rootsOnly: true,
+            onPick: (t) => void ui.act.canvas(t.id, canvasId, true),
+          })}>+ Existing</button>
+        )}
+        <label className={`${btn} flex cursor-pointer items-center gap-1.5`}>
+          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} className="size-3.5 accent-[var(--accent)]" /> Done
+        </label>
+      </div>
+      <div data-ui className="absolute right-2 top-2 flex items-center gap-1">
+        <button className={btn} aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+        <button className={btn} aria-label="Fit everything" onClick={fit}>Fit</button>
+        <button className={btn} aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
+      </div>
+
+      {connect && connect.at === null && (
+        <div data-ui className="glass-strong absolute left-1/2 top-14 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-sm">
+          Tap a task to connect “{short(byId.get(connect.from)?.title ?? '')}”
+          <button className="text-faint hover:text-ink" onClick={() => setConnect(null)}>Cancel</button>
+        </div>
+      )}
+
+      {!data.tasks.length && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-faint">No tasks here.</div>
+      )}
+
+      {selTask && (
+        <div data-card className="glass-strong absolute inset-x-2 bottom-2 z-10 rounded-2xl p-1.5 lg:inset-x-auto lg:bottom-auto lg:right-2 lg:top-14 lg:w-[380px]">
+          <ul><TaskNode t={selTask} tree={data} leafOnly {...siblingsOf(selTask)} /></ul>
+          <div className="flex justify-end gap-3 px-2 pb-1 pt-0.5 text-xs text-muted">
+            <button className="hover:text-accent" onClick={() => setConnect({ from: selTask.id, at: null })}>Connect…</button>
+            <button className="hover:text-accent" onClick={() => ui.openTree(selTask.root_id, selTask.id)}>Whole task</button>
+            <button className="hover:text-ink" onClick={() => setSel(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={!!ask} onClose={() => setAsk(null)} title="Connect">
+        {ask && (
+          <>
+            <h2 className="mb-3 text-base font-semibold">Connect</h2>
+            <div className="grid gap-1">
+              {[
+                [`“${short(ask.b.title)}” is a subtask of “${short(ask.a.title)}”`, () => ui.act.moveUnder(ask.b, ask.a.id, null, `${short(ask.b.title)} is now a subtask`)],
+                [`“${short(ask.a.title)}” comes before “${short(ask.b.title)}”`, () => ui.act.link(ask.a.id, ask.b.id, 'blocks')],
+                [`“${short(ask.b.title)}” comes before “${short(ask.a.title)}”`, () => ui.act.link(ask.b.id, ask.a.id, 'blocks')],
+                ['Related', () => ui.act.link(ask.a.id, ask.b.id, 'related')],
+              ].map(([label, go]) => (
+                <button key={label as string} className="rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover"
+                  onClick={() => { setAsk(null); void (go as () => Promise<unknown>)() }}>{label as string}</button>
+              ))}
+            </div>
+          </>
+        )}
+      </Dialog>
+    </div>
+  )
+}

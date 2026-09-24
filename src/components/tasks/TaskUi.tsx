@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addSequence, addSubtask, addTaskLink, createCanvas, deleteSequence, deleteTask, deleteTaskLink, getTaskTree,
-  listCanvases, moveTask, pickableTasks, renameSequence, renameTask, setTaskDone, setTaskOnCanvas, setTaskState, updateTask,
+  listCanvases, moveUnder, pickableTasks, renameSequence, renameTask, reorderTask, setTaskDone, setTaskOnCanvas, setTaskState, updateTask,
 } from '@/api/tasks'
 import { ruleMessage } from '@/api/errors'
 import { ConfirmDialog, Dialog } from '@/components/Dialog'
@@ -29,7 +29,7 @@ interface MenuReq {
   onAddSub: () => void
   onAddSeq: () => void
 }
-interface PickReq { title: string; exclude: Set<string>; standaloneOnly?: boolean; onPick: (t: TaskItem) => void }
+interface PickReq { title: string; exclude: Set<string>; rootsOnly?: boolean; onPick: (t: TaskItem) => void }
 interface ConfirmReq { title: string; body: string; confirmLabel: string; onConfirm: () => void }
 
 function useActions(confirm: (r: ConfirmReq) => void) {
@@ -58,8 +58,8 @@ function useActions(confirm: (r: ConfirmReq) => void) {
       else void go()
     },
     addSub: (parentId: string, title: string, sequenceId: string | null = null) => run(() => addSubtask(parentId, title, sequenceId), 'Couldn’t add it.'),
-    addSeq: async (taskId: string, title: string | null) => {
-      try { const id = await addSequence(taskId, title); refresh(); return id } catch (e) { toast(ruleMessage(e, 'Couldn’t add the sequence.'), { kind: 'error' }); return null }
+    addSeq: async (taskId: string, title: string | null, firstStep: string) => {
+      try { const id = await addSequence(taskId, title, firstStep); refresh(); return id } catch (e) { toast(ruleMessage(e, 'Couldn’t add the sequence.'), { kind: 'error' }); return null }
     },
     renameSeq: (id: string, title: string | null) => run(() => renameSequence(id, title), 'Couldn’t rename the sequence.'),
     delSeq: (seq: TaskSequence, steps: number) => {
@@ -67,7 +67,9 @@ function useActions(confirm: (r: ConfirmReq) => void) {
       if (steps > 0) confirm({ title: `Delete “${seq.title || 'Sequence'}”?`, body: `Its ${steps} step${steps === 1 ? '' : 's'} are deleted too.`, confirmLabel: 'Delete', onConfirm: () => void go() })
       else void go()
     },
-    move: (t: TaskItem, patch: Parameters<typeof moveTask>[1], ok?: string) => run(() => moveTask(t.id, patch), 'Couldn’t move the task.', ok),
+    moveUnder: (t: TaskItem, parentId: string | null, sequenceId: string | null = null, ok?: string) =>
+      run(() => moveUnder(t.id, parentId, sequenceId), 'Couldn’t move the task.', ok),
+    reorder: (t: TaskItem, sortOrder: number) => run(() => reorderTask(t.id, sortOrder), 'Couldn’t move the task.'),
     link: (fromId: string, toId: string, kind: 'blocks' | 'related') => run(() => addTaskLink(fromId, toId, kind), 'Couldn’t link the tasks.'),
     unlink: (linkId: string) => run(() => deleteTaskLink(linkId), 'Couldn’t remove the link.'),
     canvas: (taskId: string, canvasId: string, on: boolean) => run(() => setTaskOnCanvas(taskId, canvasId, on), 'Couldn’t update the canvas.'),
@@ -143,10 +145,12 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
   if (!req) return <Dialog open={false} onClose={onClose} title="Task"><span /></Dialog>
   const { t, tree, siblings, parentSeqs } = req
   const then = (f: () => void) => () => { onClose(); f() }
-  const standalone = t.source === 'standalone'
+  // a note arranges its own tasks' order; moves (which rewrite the note) work for every task
+  const reorderable = t.source === 'standalone'
   const below = descendantIds(tree, t.id)
-  const up = siblings ? nudgeOrder(siblings, t.id, -1) : null
-  const down = siblings ? nudgeOrder(siblings, t.id, 1) : null
+  const up = siblings && reorderable ? nudgeOrder(siblings, t.id, -1) : null
+  const down = siblings && reorderable ? nudgeOrder(siblings, t.id, 1) : null
+  const noteHint = t.source === 'note' ? ' (rewrites the note)' : ''
 
   return (
     <Dialog open onClose={onClose} title={t.title}>
@@ -164,27 +168,25 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
         ))}
       </div>
       <div className="grid grid-cols-2 gap-1">
-        {standalone && <button className={item} onClick={then(req.onAddSub)}>+ Subtask</button>}
-        {standalone && <button className={item} onClick={then(req.onAddSeq)}>+ Sequence</button>}
-        {siblings && <button className={item} disabled={up === null} onClick={then(() => void ui.act.move(t, { sort_order: up! }))}>↑ Move up</button>}
-        {siblings && <button className={item} disabled={down === null} onClick={then(() => void ui.act.move(t, { sort_order: down! }))}>↓ Move down</button>}
-        {!t.sequence_id && parentSeqs?.map((s) => (
-          <button key={s.id} className={item} onClick={then(() => void ui.act.move(t, { sequence_id: s.id }))}>Into “{s.title || 'Sequence'}”</button>
+        <button className={item} onClick={then(req.onAddSub)}>+ Subtask</button>
+        <button className={item} onClick={then(req.onAddSeq)}>+ Sequence</button>
+        {up !== null || down !== null ? <>
+          <button className={item} disabled={up === null} onClick={then(() => void ui.act.reorder(t, up!))}>↑ Move up</button>
+          <button className={item} disabled={down === null} onClick={then(() => void ui.act.reorder(t, down!))}>↓ Move down</button>
+        </> : null}
+        {!t.sequence_id && t.parent_id && parentSeqs?.map((s) => (
+          <button key={s.id} className={item} onClick={then(() => void ui.act.moveUnder(t, t.parent_id, s.id))}>Into “{s.title || 'Sequence'}”</button>
         ))}
-        {t.sequence_id && <button className={item} onClick={then(() => void ui.act.move(t, { sequence_id: null }))}>Out of sequence</button>}
-        {standalone && (
-          <button className={item} onClick={then(() => ui.pick({
-            title: `Move “${t.title}” under…`, exclude: new Set([t.id, ...below]), standaloneOnly: true,
-            onPick: (p) => void ui.act.move(t, { parent_id: p.id }, `Moved under ${p.title}`),
-          }))}>Move under…</button>
-        )}
-        {t.parent_id && <button className={item} onClick={then(() => void ui.act.move(t, { parent_id: null }, 'Now a main task'))}>Make main task</button>}
-        {standalone && (
-          <button className={item} onClick={then(() => ui.pick({
-            title: `Add under “${t.title}”`, exclude: new Set([t.id, ...below]), standaloneOnly: true,
-            onPick: (c) => void ui.act.move(c, { parent_id: t.id }, `${c.title} is now a subtask`),
-          }))}>Add existing…</button>
-        )}
+        {t.sequence_id && t.parent_id && <button className={item} onClick={then(() => void ui.act.moveUnder(t, t.parent_id, null))}>Out of sequence</button>}
+        <button className={item} onClick={then(() => ui.pick({
+          title: `Move “${t.title}” under…${noteHint}`, exclude: new Set([t.id, ...below]),
+          onPick: (p) => void ui.act.moveUnder(t, p.id, null, `Moved under ${p.title}`),
+        }))}>Move under…</button>
+        {t.parent_id && <button className={item} onClick={then(() => void ui.act.moveUnder(t, null, null, 'Now a main task'))}>Make main task</button>}
+        <button className={item} onClick={then(() => ui.pick({
+          title: `Add under “${t.title}”`, exclude: new Set([t.id, ...below]),
+          onPick: (c) => void ui.act.moveUnder(c, t.id, null, `${c.title} is now a subtask`),
+        }))}>Add existing…</button>
         <button className={item} onClick={then(() => ui.pick({
           title: `“${t.title}” waits for…`, exclude: new Set([t.id]),
           onPick: (p) => void ui.act.link(p.id, t.id, 'blocks'),
@@ -208,7 +210,7 @@ function PickerDialog({ req, onClose }: { req: PickReq | null; onClose: () => vo
   const dq = useDebounced(q.trim(), 200)
   useEffect(() => { if (!req) setQ('') }, [req])
   const res = useQuery({ queryKey: ['tasks', 'pick', dq], queryFn: () => pickableTasks(dq), enabled: !!req })
-  const rows = (res.data ?? []).filter((t) => !req?.exclude.has(t.id) && (!req?.standaloneOnly || t.source === 'standalone'))
+  const rows = (res.data ?? []).filter((t) => !req?.exclude.has(t.id) && (!req?.rootsOnly || !t.parent_id))
   return (
     <Dialog open={!!req} onClose={onClose} title={req?.title ?? 'Pick a task'}>
       <h2 className="mb-3 line-clamp-2 text-base font-semibold">{req?.title}</h2>

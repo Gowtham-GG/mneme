@@ -90,9 +90,18 @@ export interface TaskItem {
   /** Top of this task's tree (itself for a main task). */
   root_id: string
   parent_title: string | null
+  /** "T-1A2B3C4D" — what a [[T-…]] link in a note uses. */
+  code: string
 }
 
-export interface TaskSequence { id: string; task_id: string; title: string | null; sort_order: number; created_at: string }
+export interface TaskSequence {
+  id: string
+  /** The parent task; null for a top-level numbered run in a note. */
+  task_id: string | null
+  title: string | null; sort_order: number; created_at: string
+  /** Set when the sequence is written in a note (it is edited there). */
+  note_id?: string | null
+}
 
 export interface TaskLink {
   id: string
@@ -101,7 +110,7 @@ export interface TaskLink {
   from_task_id: string
   to_task_id: string
   /** The end outside the fetched tree (or the `to` end when both are inside). */
-  other: { id: string; title: string; state: TaskState; root_id: string }
+  other: { id: string; title: string; state: TaskState; root_id: string; canvases?: { id: string; name: string }[] }
 }
 
 /** Row shape of the task_tree() RPC: one main task's whole tree. */

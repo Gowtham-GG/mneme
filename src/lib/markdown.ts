@@ -9,17 +9,21 @@ export type Inline =
   | { t: 'italic'; c: Inline[] }
   | { t: 'code'; v: string }
   | { t: 'url'; href: string; v: string }
-  | { t: 'noteLink'; ref: string; label: string; isId: boolean }
+  | { t: 'noteLink'; ref: string; label: string; isId: boolean; isTask?: boolean }
   | { t: 'tag'; name: string; raw: string }
   | { t: 'id'; id: string }
 
 export type Symbol = '?' | '!' | '★' | '×' | '→' | '↗'
 
+/** Checkbox markers (same as the SQL parser): [ ] open, [x] done, [/] in progress, [-] cancelled, [h] on hold. */
+export type TaskMarkState = 'open' | 'done' | 'in_progress' | 'cancelled' | 'on_hold'
+export const MARKER_STATE: Record<string, TaskMarkState> = { ' ': 'open', x: 'done', '/': 'in_progress', '-': 'cancelled', h: 'on_hold' }
+
 export type Block =
   | { t: 'blank' }
   | { t: 'hr' }
   | { t: 'heading'; level: 1 | 2 | 3; c: Inline[]; line: number }
-  | { t: 'item'; ordered: boolean; marker: string; indent: number; task: { done: boolean } | null; c: Inline[]; line: number }
+  | { t: 'item'; ordered: boolean; marker: string; indent: number; task: { done: boolean; state: TaskMarkState } | null; c: Inline[]; line: number }
   | { t: 'quote'; c: Inline[]; line: number }
   | { t: 'symbol'; sym: Symbol; c: Inline[]; line: number }
   | { t: 'code'; lang: string; v: string; line: number }
@@ -54,7 +58,8 @@ export function parseInline(text: string): Inline[] {
     else if (m[2]) {
       const ref = m[3].trim()
       const isId = /^N-\d{6}-\d{3,}$/i.test(ref)
-      out.push({ t: 'noteLink', ref: isId ? ref.toUpperCase() : ref, label: (m[4] ?? '').trim() || ref, isId })
+      const isTask = /^T-[0-9a-f]{8}$/i.test(ref)
+      out.push({ t: 'noteLink', ref: isId || isTask ? ref.toUpperCase() : ref, label: (m[4] ?? '').trim() || ref, isId, ...(isTask ? { isTask } : {}) })
     } else if (m[5]) out.push({ t: 'url', href: m[5], v: m[5] })
     else if (m[6]) out.push({ t: 'bold', c: parseInline(m[7]) })
     else if (m[8]) out.push({ t: 'italic', c: parseInline(m[9]) })
@@ -72,9 +77,14 @@ export function parseInline(text: string): Inline[] {
 const FENCE = /^\s{0,3}(```|~~~)\s*([\w-]*)/
 const HR = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/
 const HEADING = /^(#{1,3})\s+(.*)$/
-const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(?:\[([ xX])\]\s+(?=\S))?(.*)$/
+const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(?:\[([ xX\/hH-])\]\s+(?=\S))?(.*)$/
 const QUOTE = /^\s*>\s?(.*)$/
 const SYMBOL = /^\s*([?!★×→↗])(?:\s+(.*)|$)/
+
+const taskMark = (ch: string) => {
+  const state = MARKER_STATE[ch.toLowerCase()] ?? 'open'
+  return { done: state === 'done' || state === 'cancelled', state }
+}
 
 export function parseBlocks(content: string): Block[] {
   const out: Block[] = []
@@ -103,7 +113,7 @@ export function parseBlocks(content: string): Block[] {
       const spaces = m[1].replace(/\t/g, '  ').length
       out.push({
         t: 'item', ordered: /\d/.test(m[2]), marker: m[2], indent: Math.min(Math.floor(spaces / 2), 4),
-        task: m[3] === undefined ? null : { done: m[3].toLowerCase() === 'x' }, c: parseInline(m[4]), line,
+        task: m[3] === undefined ? null : taskMark(m[3]), c: parseInline(m[4]), line,
       })
       continue
     }
