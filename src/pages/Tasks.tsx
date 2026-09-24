@@ -1,119 +1,22 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { addStandaloneTask, clearCompletedTasks, deleteTask, listTasks, searchTasks, setTaskDone, updateTask } from '@/api/tasks'
+import { addStandaloneTask, clearCompletedTasks, listTasks, searchTasks } from '@/api/tasks'
 import { ConfirmDialog } from '@/components/Dialog'
 import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
-import { addDays, formatDueDate, formatTimeOfDay, taskDueStatus, todayKey } from '@/lib/dates'
+import { todayKey } from '@/lib/dates'
 import { Card } from '@/components/Card'
-import type { TaskItem, TaskBucket, TaskPriority } from '@/types/db'
+import { TaskNode } from '@/components/tasks/TaskNode'
+import { TaskUiProvider } from '@/components/tasks/TaskUi'
+import type { TaskItem, TaskBucket } from '@/types/db'
 import { IconSearch, IconX } from '@/components/icons'
 
-const PRIORITIES: { id: TaskPriority | null; label: string }[] = [
-  { id: null, label: 'None' }, { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' },
-]
-
-function DuePicker({ task, tz, onChange }: { task: TaskItem; tz: string; onChange: (d: string | null, t: string | null) => void }) {
-  const [open, setOpen] = useState(false)
-  const today = todayKey(tz)
-  const status = taskDueStatus(task.due_date, task.due_time, tz)
-  const set = (d: string | null, t: string | null = null) => { setOpen(false); onChange(d, t) }
-  const label = task.due_date
-    ? `${status === 'overdue' ? 'Overdue · ' : ''}${formatDueDate(task.due_date, tz)}${task.due_time ? ` · ${formatTimeOfDay(task.due_time)}` : ''}`
-    : 'Add date'
-  return (
-    <div className="relative">
-      <button
-        className={`rounded px-1.5 py-0.5 text-xs ${task.due_date ? (status === 'overdue' ? 'bg-danger-soft text-danger' : 'bg-task-soft text-task') : 'text-faint hover:bg-hover'}`}
-        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
-      >
-        {label}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div role="menu" className="pop absolute right-0 z-30 mt-1 w-48 glass-strong rounded-xl p-1">
-            {([['Today', today], ['Tomorrow', addDays(today, 1)], ['Next week', addDays(today, 7)]] as const).map(([l, d]) => (
-              <button key={l} role="menuitem" className="block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-hover" onClick={() => set(d, task.due_time)}>{l}</button>
-            ))}
-            <label className="block px-3 py-1.5 text-sm">Date
-              <input type="date" defaultValue={task.due_date ?? ''} className="mt-1 w-full rounded border border-line bg-bg px-1.5 py-1 text-sm" onChange={(e) => e.target.value && set(e.target.value, task.due_time)} />
-            </label>
-            <label className="block px-3 py-1.5 text-sm">Time <span className="text-faint">(optional)</span>
-              <input type="time" defaultValue={task.due_time ?? ''} disabled={!task.due_date} className="mt-1 w-full rounded border border-line bg-bg px-1.5 py-1 text-sm disabled:opacity-50" onChange={(e) => set(task.due_date, e.target.value || null)} />
-            </label>
-            {task.due_date && <button role="menuitem" className="block w-full rounded px-3 py-1.5 text-left text-sm text-muted hover:bg-hover" onClick={() => set(null, null)}>No date</button>}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function PriorityPicker({ priority, onChange }: { priority: TaskPriority | null; onChange: (p: TaskPriority | null) => void }) {
-  const [open, setOpen] = useState(false)
-  const tone = priority === 'high' ? 'bg-danger-soft text-danger' : priority === 'medium' ? 'bg-important-soft text-important' : priority === 'low' ? 'bg-panel text-muted' : 'text-faint hover:bg-hover'
-  return (
-    <div className="relative">
-      <button className={`rounded px-1.5 py-0.5 text-xs ${tone}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {priority ? PRIORITIES.find((p) => p.id === priority)?.label : '⚑'}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div role="menu" className="pop absolute right-0 z-30 mt-1 w-32 glass-strong rounded-xl p-1">
-            {PRIORITIES.map((p) => (
-              <button key={p.label} role="menuitem" className="block w-full rounded px-3 py-1.5 text-left text-sm hover:bg-hover" onClick={() => { setOpen(false); onChange(p.id) }}>{p.label}</button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function TaskRow({ t, tz, onTick, onDue, onPriority, onDelete }: {
-  t: TaskItem; tz: string
-  onTick: (t: TaskItem, done: boolean) => void
-  onDue: (t: TaskItem, d: string | null, time: string | null) => void
-  onPriority: (t: TaskItem, p: TaskPriority | null) => void
-  onDelete: (t: TaskItem) => void
-}) {
-  const done = t.status === 'done'
-  return (
-    <li className="group flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-hover">
-      <input type="checkbox" checked={done} aria-label={`${done ? 'Reopen' : 'Complete'}: ${t.title}`} onChange={(e) => onTick(t, e.target.checked)} className="mt-1 size-4 accent-[var(--accent)]" />
-      <div className="min-w-0 flex-1">
-        <div className={`text-[15px] ${done ? 'text-faint line-through' : ''}`}>{t.title}</div>
-        {t.note_public_id && (
-          <Link to={`/n/${t.note_public_id}`} className="text-xs text-faint no-underline hover:text-accent">
-            <span className="tabular-nums">{t.note_public_id}</span>{t.note_title ? ` · ${t.note_title}` : ''}
-          </Link>
-        )}
-      </div>
-      {!done && <PriorityPicker priority={t.priority} onChange={(p) => onPriority(t, p)} />}
-      {!done && <DuePicker task={t} tz={tz} onChange={(d, time) => onDue(t, d, time)} />}
-      <button
-        aria-label={`Delete task: ${t.title}`} title={t.source === 'note' ? 'Delete (removes the line from its note)' : 'Delete'}
-        className="rounded p-1 text-faint hover:bg-hover hover:text-danger focus:opacity-100 lg:opacity-0 lg:group-hover:opacity-100" onClick={() => onDelete(t)}
-      ><IconX size={16} /></button>
-    </li>
-  )
-}
-
-type Handlers = {
-  onTick: (t: TaskItem, done: boolean) => void
-  onDue: (t: TaskItem, d: string | null, time: string | null) => void
-  onPriority: (t: TaskItem, p: TaskPriority | null) => void
-  onDelete: (t: TaskItem) => void
-}
-
-function TaskList({ items, tz, empty, ...h }: { items: TaskItem[] | undefined; tz: string; empty: string } & Handlers) {
+function TaskList({ items, empty }: { items: TaskItem[] | undefined; empty: string }) {
   if (!items) return <div className="skeleton h-10" />
   if (!items.length) return <p className="px-2 py-3 text-sm text-faint">{empty}</p>
-  return <ul className="-mx-2">{items.map((t) => <TaskRow key={t.id} t={t} tz={tz} {...h} />)}</ul>
+  return <ul className="-mx-2">{items.map((t) => <TaskNode key={t.id} t={t} />)}</ul>
 }
 
 const TABS: { id: TaskBucket; label: string; empty: string }[] = [
@@ -133,7 +36,7 @@ export function Tasks() {
   const [query, setQuery] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const dq = useDebounced(query.trim(), 200)
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['tasks'] }); void qc.invalidateQueries({ queryKey: ['notes'] }); void qc.invalidateQueries({ queryKey: ['note-context'] }) }
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['tasks'] }); void qc.invalidateQueries({ queryKey: ['notes'] }); void qc.invalidateQueries({ queryKey: ['note-context'] }); void qc.invalidateQueries({ queryKey: ['due-task-count'] }) }
 
   // all four buckets up front: the tab counts come from them
   const results = useQueries({ queries: TABS.map((t) => ({ queryKey: ['tasks', t.id], queryFn: () => listTasks(t.id) })) })
@@ -147,28 +50,14 @@ export function Tasks() {
     if (!t) return
     try { await addStandaloneTask(t, tab === 'today' ? today : null); setTitle(''); refresh() } catch { toast('Couldn’t add the task.', { kind: 'error' }) }
   }
-  const tick = async (t: TaskItem, done: boolean) => {
-    try {
-      await setTaskDone(t.id, done); refresh()
-      if (done) toast(`Done: ${t.title}`, { action: { label: 'Undo', onClick: () => void setTaskDone(t.id, false).then(refresh) } })
-    } catch { toast('Couldn’t update the task.', { kind: 'error' }) }
-  }
-  const due = async (t: TaskItem, d: string | null, time: string | null) => { try { await updateTask(t.id, { due_date: d, due_time: d ? time : null }); refresh() } catch { toast('Couldn’t set the date.', { kind: 'error' }) } }
-  const priority = async (t: TaskItem, p: TaskPriority | null) => { try { await updateTask(t.id, { priority: p }); refresh() } catch { toast('Couldn’t set the priority.', { kind: 'error' }) } }
-  const del = async (t: TaskItem) => {
-    try {
-      await deleteTask(t.id); refresh()
-      toast(t.note_public_id ? `Deleted · line removed from ${t.note_public_id}` : 'Deleted')
-    } catch { toast('Couldn’t delete the task.', { kind: 'error' }) }
-  }
   const clearDone = async () => {
     setConfirmClear(false)
     try { const n = await clearCompletedTasks(); refresh(); toast(`Cleared ${n} task${n === 1 ? '' : 's'}`) } catch { toast('Couldn’t clear completed tasks.', { kind: 'error' }) }
   }
-  const h: Handlers = { onTick: tick, onDue: due, onPriority: priority, onDelete: del }
   const current = TABS.find((t) => t.id === tab)!
 
   return (
+    <TaskUiProvider>
     <div className="h-full overflow-y-auto">
       <div className="page-top mx-auto max-w-3xl px-4 pb-32 lg:px-6 lg:pb-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -189,7 +78,7 @@ export function Tasks() {
 
         {dq ? (
           <Card className="rise relative focus-within:z-20" title={<>Results <span className="ml-1 normal-case tracking-normal text-faint">{found.data?.length ?? ''}</span></>}>
-            <TaskList items={found.data} tz={tz} empty="No matching tasks." {...h} />
+            <TaskList items={found.data} empty="No matching tasks." />
           </Card>
         ) : (
           <>
@@ -210,14 +99,15 @@ export function Tasks() {
             <Card className="rise relative focus-within:z-20"
               aside={tab === 'completed' && !!lists.completed.data?.length
                 ? <button className="text-danger hover:underline" onClick={() => setConfirmClear(true)}>Clear all</button> : undefined}>
-              <TaskList items={lists[tab].data} tz={tz} empty={current.empty} {...h} />
+              <TaskList items={lists[tab].data} empty={current.empty} />
             </Card>
           </>
         )}
       </div>
       <ConfirmDialog open={confirmClear} title="Clear all completed tasks?" danger confirmLabel="Clear all" onClose={() => setConfirmClear(false)}
-        body="Completed tasks are deleted. Ones written in notes also have their line removed from the note (the note’s History keeps the old text)."
+        body="Finished main tasks are deleted with their subtasks. Ones written in notes also have their line removed from the note (the note’s History keeps the old text)."
         onConfirm={() => void clearDone()} />
     </div>
+    </TaskUiProvider>
   )
 }

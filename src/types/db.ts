@@ -59,6 +59,8 @@ export interface NoteListItem {
 
 export type TaskStatus = 'open' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high'
+/** Full task status; `status` above is its finished/unfinished summary. */
+export type TaskState = 'open' | 'in_progress' | 'on_hold' | 'done' | 'cancelled'
 
 /** Row shape of the tasks_active view / list_tasks RPC. */
 export interface TaskItem {
@@ -76,7 +78,36 @@ export interface TaskItem {
   completed_at: string | null
   note_public_id: string | null
   note_title: string | null
+  state: TaskState
+  parent_id: string | null
+  sequence_id: string | null
+  sort_order: number
+  /** Waiting on an earlier step, a "must happen first" link, or a blocked ancestor. */
+  blocked: boolean
+  child_count: number
+  child_resolved: number
+  updated_at: string
+  /** Top of this task's tree (itself for a main task). */
+  root_id: string
+  parent_title: string | null
 }
+
+export interface TaskSequence { id: string; task_id: string; title: string | null; sort_order: number; created_at: string }
+
+export interface TaskLink {
+  id: string
+  /** blocks: from must finish before to can start. related: a plain connection. */
+  kind: 'blocks' | 'related'
+  from_task_id: string
+  to_task_id: string
+  /** The end outside the fetched tree (or the `to` end when both are inside). */
+  other: { id: string; title: string; state: TaskState; root_id: string }
+}
+
+/** Row shape of the task_tree() RPC: one main task's whole tree. */
+export interface TaskTree { tasks: TaskItem[]; sequences: TaskSequence[]; links: TaskLink[]; canvas_ids: string[] }
+
+export interface Canvas { id: string; name: string; sort_order: number }
 
 /** Row shape of the calendar_month() RPC. */
 export interface CalendarDay {

@@ -871,5 +871,270 @@ begin
   perform t.logout();
 end $$;
 
+-- renaming tasks
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        n1 uuid; t1 uuid; s1 uuid; c text;
+begin
+  perform t.login(a);
+  insert into mneme.notes (content) values (E'trip\n  * [x] buy maps\n1. [ ] call hotel') returning id into n1;
+  select id into t1 from mneme.tasks where note_id = n1 and title = 'call hotel';
+  update mneme.tasks set priority = 'high', due_date = '2030-01-02' where id = t1;
+  perform mneme.rename_task(t1, E'  call   the\nhotel \\1 ');
+  select content into c from mneme.notes where id = n1;
+  perform t.ok(c = E'trip\n  * [x] buy maps\n1. [ ] call the hotel \\1', 'renaming a note task rewrites only its text in the note');
+  perform t.ok(exists (select 1 from mneme.tasks_active where id = t1 and title = E'call the hotel \\1'
+                       and priority = 'high' and due_date = '2030-01-02'), 'the renamed task keeps its id, priority and due date');
+  perform t.ok((select count(*) from mneme.tasks_active where note_id = n1) = 2, 'renaming creates no extra task');
+  insert into mneme.tasks (source, title) values ('standalone', 'chore') returning id into s1;
+  perform mneme.rename_task(s1, 'weekly chore');
+  perform t.ok(exists (select 1 from mneme.tasks where id = s1 and title = 'weekly chore'), 'renaming a standalone task');
+  perform t.ok(t.throws(format('select mneme.rename_task(%L, %L)', s1, '   ')), 'an empty title is rejected');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(t.throws(format('select mneme.rename_task(%L, %L)', t1, 'x')), 'B cannot rename A''s task');
+  perform t.logout();
+end $$;
+
+-- ============================================================ task trees ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        p uuid; q uuid; s1 uuid; s2 uuid; x1 uuid; x2 uuid; x3 uuid; y1 uuid; l1 uuid; c1 uuid; c2 uuid;
+        nt uuid; n1 uuid; today date;
+begin
+  perform t.login(a);
+  update mneme.settings set timezone = 'UTC';
+  select (now() at time zone 'UTC')::date into today;
+
+  -- state <-> status
+  insert into mneme.tasks (source, title) values ('standalone', 'Launch site') returning id into p;
+  perform t.ok((select state from mneme.tasks where id = p) = 'open', 'new task starts open');
+  perform mneme.set_task_state(p, 'in_progress');
+  perform t.ok((select status from mneme.tasks where id = p) = 'open', 'in progress still counts as unfinished');
+  perform mneme.set_task_state(p, 'cancelled');
+  perform t.ok((select status from mneme.tasks where id = p) = 'done', 'cancelled counts as finished');
+  perform mneme.set_task_done(p, false);
+  perform t.ok((select state from mneme.tasks where id = p) = 'open', 'set_task_done(false) reopens');
+  update mneme.tasks set status = 'done' where id = p;
+  perform t.ok((select state from mneme.tasks where id = p) = 'done', 'writing the old status column still works');
+  perform mneme.set_task_state(p, 'open');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, %L)', p, 'nope')), 'unknown state is rejected');
+
+  -- sequences block in order; loose subtasks don't
+  insert into mneme.task_sequences (task_id, title) values (p, 'Domain') returning id into s1;
+  insert into mneme.task_sequences (task_id, title) values (p, 'Content') returning id into s2;
+  insert into mneme.tasks (source, title, sequence_id) values ('standalone', 'Buy domain', s1) returning id into x1;
+  insert into mneme.tasks (source, title, sequence_id) values ('standalone', 'Point DNS', s1) returning id into x2;
+  insert into mneme.tasks (source, title, sequence_id) values ('standalone', 'Verify SSL', s1) returning id into x3;
+  insert into mneme.tasks (source, title, sequence_id) values ('standalone', 'Write About', s2) returning id into y1;
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Favicon', p) returning id into l1;
+  perform t.ok((select parent_id from mneme.tasks where id = x1) = p, 'a sequence step gets its parent from the sequence');
+  perform t.ok((select sort_order from mneme.tasks where id = x3) > (select sort_order from mneme.tasks where id = x2), 'steps are appended in order');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = x1), 'first step is actionable');
+  perform t.ok((select blocked from mneme.tasks_active where id = x2), 'second step is blocked');
+  perform t.ok((select blocked from mneme.tasks_active where id = x3), 'third step is blocked');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = y1), 'a parallel sequence is not blocked');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = l1), 'a loose subtask is not blocked');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, %L)', x2, 'done')), 'a blocked step can''t be completed');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, %L)', x2, 'in_progress')), 'a blocked step can''t be started');
+  perform mneme.set_task_state(x2, 'on_hold');
+  perform t.ok((select state from mneme.tasks where id = x2) = 'on_hold', 'a blocked step can be put on hold');
+  perform mneme.set_task_state(x2, 'open');
+  perform t.ok((select row(child_count, child_resolved) from mneme.tasks_active where id = p) = row(5, 0), 'child counts');
+
+  -- roll-up
+  perform mneme.set_task_state(x1, 'done');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = x2), 'finishing step 1 unblocks step 2');
+  perform t.ok((select blocked from mneme.tasks_active where id = x3), 'step 3 still waits on step 2');
+  perform t.ok((select state from mneme.tasks where id = p) = 'in_progress', 'parent goes in progress once a subtask is done');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, %L)', p, 'done')), 'a parent can''t be done while subtasks are open');
+  perform mneme.set_task_state(x2, 'cancelled');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = x3), 'a cancelled step unblocks the next');
+  perform mneme.set_task_state(x3, 'done');
+  perform mneme.set_task_state(y1, 'done');
+  perform mneme.set_task_state(l1, 'done');
+  perform t.ok((select state from mneme.tasks where id = p) = 'done', 'parent is done when every subtask is done or cancelled');
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Launch tweet', p) returning id into q;
+  perform t.ok((select state from mneme.tasks where id = p) = 'in_progress', 'adding a subtask to a done parent reopens it');
+  delete from mneme.tasks where id = q;
+  perform t.ok((select state from mneme.tasks where id = p) = 'done', 'deleting the only open subtask finishes the parent again');
+  perform mneme.set_task_state(l1, 'open');
+  perform t.ok((select state from mneme.tasks where id = p) = 'in_progress', 'reopening a subtask reopens the parent');
+  perform mneme.set_task_state(p, 'on_hold');
+  perform mneme.set_task_state(l1, 'done');
+  perform t.ok((select state from mneme.tasks where id = p) = 'on_hold', 'a parent put on hold by hand is left alone');
+  perform mneme.set_task_state(p, 'open');
+  perform t.ok((select state from mneme.tasks where id = p) = 'done', 'taking it off hold lets the roll-up finish it');
+
+  -- nesting + grandparent roll-up
+  perform mneme.set_task_state(l1, 'open');
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Draw sketch', l1) returning id into q;
+  perform t.ok((select parent_id from mneme.tasks where id = q) = l1, 'subtasks can have subtasks');
+  perform mneme.set_task_state(q, 'done');
+  perform t.ok((select state from mneme.tasks where id = l1) = 'done' and (select state from mneme.tasks where id = p) = 'done',
+               'roll-up climbs to the grandparent');
+  perform t.ok(t.throws(format('update mneme.tasks set parent_id = %L where id = %L', q, p)), 'no cycles in the tree');
+  perform t.ok(t.throws(format('update mneme.tasks set parent_id = id where id = %L', p)), 'a task can''t be its own parent');
+
+  -- blocked is inherited
+  perform mneme.set_task_state(x1, 'open');
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Pick registrar', x2) returning id into c1;
+  perform t.ok((select blocked from mneme.tasks_active where id = c1), 'a subtask of a blocked step is blocked too');
+  delete from mneme.tasks where id = c1;
+
+  -- cancel cascade
+  perform mneme.set_task_state(p, 'cancelled');
+  perform t.ok((select state from mneme.tasks where id = x1) = 'cancelled' and (select state from mneme.tasks where id = x3) = 'done',
+               'cancelling cancels unfinished subtasks, leaves done ones');
+  perform t.ok((select state from mneme.tasks where id = x2) = 'cancelled' and not (select cascade_cancelled from mneme.tasks where id = x2),
+               'a step cancelled by hand earlier stays marked as its own');
+  perform mneme.set_task_state(p, 'open');
+  perform t.ok((select state from mneme.tasks where id = x1) = 'open', 'un-cancelling reopens what the cascade cancelled');
+  perform t.ok((select state from mneme.tasks where id = x2) = 'cancelled', '…but not what was cancelled by hand');
+  perform t.ok((select state from mneme.tasks where id = p) = 'in_progress', 'the parent re-derives its state after un-cancel');
+
+  -- links
+  insert into mneme.tasks (source, title) values ('standalone', 'Get visa') returning id into c1;
+  insert into mneme.tasks (source, title) values ('standalone', 'Book flights') returning id into c2;
+  insert into mneme.task_links (from_task_id, to_task_id) values (c1, c2);
+  perform t.ok((select blocked from mneme.tasks_active where id = c2), 'a "must happen first" link blocks the later task');
+  perform t.ok(t.throws(format('insert into mneme.task_links (from_task_id, to_task_id) values (%L, %L)', c2, c1)), 'no loops of links');
+  perform t.ok(t.throws(format('insert into mneme.task_links (from_task_id, to_task_id) values (%L, %L)', p, x1)), 'a parent can''t block its own subtask');
+  perform t.ok(t.throws(format('insert into mneme.task_links (from_task_id, to_task_id) values (%L, %L)', q, p)), 'a subtask can''t block its ancestor');
+  insert into mneme.task_links (from_task_id, to_task_id, kind) values (c2, c1, 'related');
+  perform t.ok(true, 'a related link may point either way');
+  perform mneme.set_task_state(c1, 'done');
+  perform t.ok(not (select blocked from mneme.tasks_active where id = c2), 'finishing the first task unblocks the linked one');
+
+  -- dates: parent pushed, parent can't be earlier, steps chronological
+  update mneme.tasks set due_date = today + 10, due_time = null where id = l1;
+  perform t.ok((select due_date from mneme.tasks where id = p) = today + 10, 'an undated parent takes its subtask''s due date');
+  update mneme.tasks set due_date = today + 12, due_time = '09:00' where id = q;
+  perform t.ok((select (due_date, due_time) from mneme.tasks where id = l1) = row(today + 12, '09:00'::time), 'a later subtask pushes its parent');
+  perform t.ok((select (due_date, due_time) from mneme.tasks where id = p) = row(today + 12, '09:00'::time), '…and the push climbs');
+  perform t.ok(t.throws(format('update mneme.tasks set due_date = %L where id = %L', today + 11, p)), 'a parent can''t be due before its subtasks');
+  perform t.ok(t.throws(format('update mneme.tasks set due_date = null where id = %L', p)), 'a parent with dated subtasks can''t lose its date');
+  update mneme.tasks set due_date = today + 20 where id = p;
+  perform t.ok((select due_date from mneme.tasks where id = p) = today + 20, 'moving a parent later is fine');
+  update mneme.tasks set due_date = today + 3 where id = x1;
+  update mneme.tasks set due_date = today + 5 where id = x3;
+  perform t.ok(t.throws(format('update mneme.tasks set due_date = %L where id = %L', today + 2, x3)), 'a step can''t be due before the dated step before it');
+  update mneme.tasks set due_date = today + 7 where id = x1;
+  perform t.ok((select due_date from mneme.tasks where id = x3) = today + 7, 'a later step date pushes the dated step after it');
+  perform t.ok((select due_date from mneme.tasks where id = x2) is null, 'undated steps are skipped');
+  perform t.ok(t.throws(format('update mneme.tasks set due_time = %L where id = %L', '10:00', x3)),
+               'same day: a date-only step counts as the end of the day');
+  update mneme.tasks set due_time = '09:00' where id = x1;
+  update mneme.tasks set due_time = '10:00' where id = x3;
+  perform t.ok((select due_time from mneme.tasks where id = x3) = '10:00', 'a later time on the same day is fine');
+  update mneme.tasks set due_date = today + 30 where id = y1;
+  perform t.ok((select due_date from mneme.tasks where id = p) = today + 30, 'any subtask pushes the parent');
+
+  -- Today only lists actionable items
+  update mneme.tasks set due_date = today where id = c2;
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Held', today) returning id into q;
+  perform mneme.set_task_state(q, 'on_hold');
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Waits', today) returning id into c1;
+  insert into mneme.tasks (source, title) values ('standalone', 'Blocker') returning id into n1;
+  insert into mneme.task_links (from_task_id, to_task_id) values (n1, c1);
+  perform t.ok(exists (select 1 from mneme.list_tasks('today') where id = c2), 'Today lists an actionable task');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('today') where id = q), 'Today skips on-hold tasks');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('today') where id = c1), 'Today skips blocked tasks');
+  perform t.ok(mneme.due_task_count() = (select count(*) from mneme.list_tasks('today')), 'the due badge matches Today');
+
+  -- canvases
+  insert into mneme.canvases (name) values ('Work') returning id into c1;
+  insert into mneme.canvases (name) values ('Side projects') returning id into c2;
+  insert into mneme.canvas_tasks (canvas_id, task_id) values (c1, p), (c2, p);
+  perform t.ok((select count(*) from mneme.canvas_tasks where task_id = p) = 2, 'a main task can be on several canvases');
+  perform t.ok(t.throws(format('insert into mneme.canvas_tasks (canvas_id, task_id) values (%L, %L)', c1, l1)), 'subtasks can''t be put on a canvas');
+  perform t.ok(t.throws($q$insert into mneme.canvases (name) values (' work ')$q$), 'canvas names are unique per user');
+  insert into mneme.tasks (source, title) values ('standalone', 'Loose idea') returning id into q;
+  insert into mneme.canvas_tasks (canvas_id, task_id) values (c1, q);
+  update mneme.tasks set parent_id = p where id = q;
+  perform t.ok(not exists (select 1 from mneme.canvas_tasks where task_id = q), 'a task moved under another leaves its canvases');
+
+  -- note tasks: status survives note edits; phase-1 limits
+  insert into mneme.notes (content) values (E'- [ ] call bank\n- [ ] email') returning id into n1;
+  select id into nt from mneme.tasks where note_id = n1 and title = 'call bank';
+  perform mneme.set_task_state(nt, 'in_progress');
+  update mneme.notes set content = E'- [ ] call bank\n- [ ] email\nmore text' where id = n1;
+  perform t.ok((select state from mneme.tasks where id = nt) = 'in_progress', 'in progress survives editing the note');
+  perform mneme.set_task_state(nt, 'cancelled');
+  perform t.ok((select content from mneme.notes where id = n1) like '- [x] call bank%', 'cancelling a note task ticks its line');
+  perform t.ok((select state from mneme.tasks where id = nt) = 'cancelled', '…and it stays cancelled');
+  update mneme.notes set content = replace(content, '- [x] call bank', '- [ ] call bank') where id = n1;
+  perform t.ok((select state from mneme.tasks where id = nt) = 'open', 'unticking the line in the note reopens it');
+  perform t.ok(t.throws(format('update mneme.tasks set parent_id = %L where id = %L', p, nt)), 'a note task can''t be moved under a task (yet)');
+  perform t.ok(t.throws(format('insert into mneme.tasks (source, title, parent_id) values (%L, %L, %L)', 'standalone', 'sub', nt)),
+               'a note task can''t get subtasks (yet)');
+  insert into mneme.task_links (from_task_id, to_task_id) values (nt, x3);
+  perform t.ok(true, 'note tasks can be linked');
+  delete from mneme.task_links where from_task_id = nt;
+
+  -- deleting / clearing
+  perform mneme.delete_task(l1);
+  perform t.ok(not exists (select 1 from mneme.tasks where parent_id = l1), 'deleting a task deletes its subtasks');
+  delete from mneme.task_sequences where id = s2;
+  perform t.ok(not exists (select 1 from mneme.tasks where id = y1), 'deleting a sequence deletes its steps');
+  insert into mneme.tasks (source, title) values ('standalone', 'Done main') returning id into q;
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Done sub', q) returning id into c1;
+  perform mneme.set_task_state(c1, 'done');
+  perform t.ok((select state from mneme.tasks where id = q) = 'done', 'setup: finished main task');
+  perform mneme.clear_completed_tasks();
+  perform t.ok(not exists (select 1 from mneme.tasks where id in (q, c1)), 'clearing completed removes finished main tasks with their subtasks');
+  perform t.ok(exists (select 1 from mneme.tasks where id = x3 and state = 'done'), '…but keeps finished steps of unfinished tasks');
+  perform t.logout();
+
+  -- isolation
+  perform t.login(b);
+  perform t.ok(not exists (select 1 from mneme.tasks_active where id = p), 'B can''t see A''s tasks');
+  perform t.ok(t.throws(format('insert into mneme.tasks (source, title, parent_id) values (%L, %L, %L)', 'standalone', 'x', p)),
+               'B can''t add a subtask to A''s task');
+  perform t.ok(t.throws(format('insert into mneme.task_sequences (task_id) values (%L)', p)), 'B can''t add a sequence to A''s task');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, %L)', p, 'done')), 'B can''t change A''s task');
+  perform t.ok((select count(*) from mneme.canvases) = 0, 'B can''t see A''s canvases');
+  perform t.logout();
+end $$;
+
+-- ======================================================= task tree reads ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
+        r uuid; s1 uuid; x1 uuid; x2 uuid; g uuid; o uuid; cv uuid; j jsonb; today date;
+begin
+  perform t.login(a);
+  select (now() at time zone 'UTC')::date into today;
+  insert into mneme.tasks (source, title) values ('standalone', 'Tree root') returning id into r;
+  insert into mneme.task_sequences (task_id, title) values (r, 'Steps') returning id into s1;
+  insert into mneme.tasks (source, title, sequence_id, due_date) values ('standalone', 'Step one', s1, today + 40) returning id into x1;
+  insert into mneme.tasks (source, title, sequence_id) values ('standalone', 'Step two', s1) returning id into x2;
+  insert into mneme.tasks (source, title, parent_id) values ('standalone', 'Grandchild', x2) returning id into g;
+  insert into mneme.tasks (source, title) values ('standalone', 'Elsewhere') returning id into o;
+  insert into mneme.task_links (from_task_id, to_task_id) values (o, x1);
+  insert into mneme.canvases (name) values ('Tree canvas') returning id into cv;
+  insert into mneme.canvas_tasks (canvas_id, task_id) values (cv, r);
+
+  perform t.ok((select root_id from mneme.tasks_active where id = g) = r, 'root_id climbs to the main task');
+  perform t.ok((select root_id from mneme.tasks_active where id = r) = r, 'a main task is its own root');
+  perform t.ok((select parent_title from mneme.tasks_active where id = g) = 'Step two', 'parent_title for breadcrumbs');
+
+  j := mneme.task_tree(r);
+  perform t.ok(jsonb_array_length(j->'tasks') = 4, 'task_tree returns the whole tree');
+  perform t.ok(jsonb_array_length(j->'sequences') = 1 and j->'sequences'->0->>'title' = 'Steps', 'task_tree returns its sequences');
+  perform t.ok(jsonb_array_length(j->'links') = 1 and j->'links'->0->'other'->>'title' = 'Elsewhere'
+               and (j->'links'->0->'other'->>'root_id')::uuid = o, 'task_tree returns links with the other end');
+  perform t.ok(j->'canvas_ids' = jsonb_build_array(cv), 'task_tree returns its canvases');
+
+  perform t.ok(exists (select 1 from mneme.list_tasks('upcoming') where id = r), 'Upcoming lists the main task');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('upcoming') where id = x1), '…but not its subtasks');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('no_date') where id in (x2, g)), 'No date skips subtasks');
+  perform t.logout();
+
+  perform t.login(b);
+  perform t.ok(jsonb_array_length(mneme.task_tree(r)->'tasks') = 0, 'B gets an empty tree for A''s task');
+  perform t.logout();
+end $$;
+
 rollback;
 \echo ALL TESTS PASSED

@@ -21,3 +21,8 @@ export function isNetworkish(err: { message?: string } | null | undefined): bool
 export function toError(e: ApiError): SaveError {
   return new SaveError(e.message, e.code)
 }
+
+/** The server's own wording for a broken task rule (raised as P0001), else the fallback. */
+export function ruleMessage(e: unknown, fallback: string): string {
+  return e instanceof SaveError && e.code === 'P0001' && e.message ? e.message : fallback
+}
