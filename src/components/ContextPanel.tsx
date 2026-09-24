@@ -1,8 +1,9 @@
+import { DuePicker } from '@/components/tasks/pickers'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { relatedNotes } from '@/api/tags'
-import { formatLongDate, formatTimeOfDay } from '@/lib/dates'
+import { formatLongDate } from '@/lib/dates'
 import { displayTitle } from '@/lib/text'
 import type { LinkedNote, NoteContext, TaskPriority } from '@/types/db'
 import { IconPlus, IconX } from './icons'
@@ -100,19 +101,8 @@ export function ContextPanel({ ctx, tz, noteId, publicId, createdAt, updatedAt, 
                   <span className={t.status === 'done' ? 'text-faint line-through' : ''}>{t.title}</span>
                   {t.status === 'open' && (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <input
-                        type="date" aria-label={`Due date for ${t.title}`} disabled={disabled} value={t.due_date ?? ''}
-                        onChange={(e) => onUpdateTask(t.id, { due_date: e.target.value || null, due_time: e.target.value ? t.due_time : null })}
-                        className="rounded border border-line bg-transparent px-1 py-0.5 text-xs"
-                      />
-                      {t.due_date && (
-                        <input
-                          type="time" aria-label={`Due time for ${t.title}`} disabled={disabled} value={t.due_time ?? ''}
-                          onChange={(e) => onUpdateTask(t.id, { due_time: e.target.value || null })}
-                          className="rounded border border-line bg-transparent px-1 py-0.5 text-xs"
-                          title={t.due_time ? formatTimeOfDay(t.due_time) : 'Add a time (optional)'}
-                        />
-                      )}
+                      <DuePicker task={t} tz={tz} disabled={disabled}
+                        onChange={(d, time) => onUpdateTask(t.id, { due_date: d, due_time: d ? time : null })} />
                       <select
                         aria-label={`Priority for ${t.title}`} disabled={disabled} value={t.priority ?? ''}
                         onChange={(e) => onUpdateTask(t.id, { priority: (e.target.value || null) as TaskPriority | null })}

@@ -43,5 +43,6 @@ export const IconEyeOff = mk(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 
 export const IconLock = mk(<><rect x="5" y="10.5" width="14" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></>)
 export const IconExternal = mk(<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />)
 export const IconSteps = mk(<><circle cx="5.5" cy="5.5" r="2" /><circle cx="5.5" cy="12" r="2" /><circle cx="5.5" cy="18.5" r="2" /><path d="M5.5 7.5v2.5M5.5 14v2.5M10.5 5.5H20M10.5 12H20M10.5 18.5H20" /></>)
+export const IconClock = mk(<><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>)
 export const IconEdit = mk(<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3" />)
 export const IconWand = mk(<path d="M5 19 16 8M14 6l1-2 1 2 2 1-2 1-1 2-1-2-2-1zM18.5 13l.6-1.3.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6z" />)

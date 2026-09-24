@@ -7,7 +7,8 @@ import { addStandaloneTask, listTasks, setTaskDone } from '@/api/tasks'
 import { Calendar } from '@/components/Calendar'
 import { Card } from '@/components/Card'
 import { HabitStrip } from '@/components/HabitStrip'
-import { IconSearch } from '@/components/icons'
+import { IconClock, IconSearch } from '@/components/icons'
+import { DueDialog } from '@/components/DueDialog'
 import { NoteRow } from '@/components/NoteRow'
 import { QuickCapture } from '@/components/QuickCapture'
 import { useSettings } from '@/contexts/SettingsContext'
@@ -22,6 +23,7 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')
+  const [pickTime, setPickTime] = useState(false)
   const [busy, setBusy] = useState(false)
   const isToday = day === todayKey(tz)
   const items = useQuery({ queryKey: ['tasks', 'day', day], queryFn: () => tasksOnDay(day) })
@@ -42,7 +44,7 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
 
   const list = [...(isToday ? (overdue.data ?? []).filter((t) => t.due_date! < day) : []), ...(items.data ?? [])]
   return (
-    <div className="mt-4 border-t border-line pt-4">
+    <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{formatDayHeading(day, tz)}</h3>
         {day <= todayKey(tz) && (
@@ -74,8 +76,12 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
       <form onSubmit={(e) => void add(e)} className="mt-2 flex flex-wrap gap-2">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task or appointment…" aria-label={`Add a task or appointment on ${formatFullDate(day)}`}
           className="min-w-0 basis-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm" />
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time (optional)" title="Time (optional)"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1.5 text-sm" />
+        <button type="button" onClick={() => setPickTime(true)} aria-label={time ? `Time: ${formatTimeOfDay(time)}` : 'Time (optional)'}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 text-left text-sm ${time ? '' : 'text-faint'}`}>
+          <IconClock size={15} /> {time ? formatTimeOfDay(time) : 'Time'}
+        </button>
+        <DueDialog open={pickTime} timeOnly title="Time" date={day} time={time || null} tz={tz}
+          onOk={(_, t) => setTime(t ?? '')} onClose={() => setPickTime(false)} />
         <button type="submit" disabled={!title.trim() || busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
       </form>
     </div>
@@ -133,10 +139,13 @@ export function Home() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card title="Calendar" className="rise min-w-0 lg:col-start-3 lg:row-start-1 lg:self-start">
             <Calendar today={day} selected={selected} onSelect={(k) => setPicked(k === day ? null : k)} />
-            <DayAgenda day={selected} tz={tz} onToggle={(id, title, done) => void tick(id, title, done)} />
           </Card>
 
           <div className="min-w-0 space-y-4 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+            <Card className="rise relative focus-within:z-20">
+              <DayAgenda day={selected} tz={tz} onToggle={(id, title, done) => void tick(id, title, done)} />
+            </Card>
+
             <Card
               title={isToday ? 'Written today' : `Written on ${formatFullDate(selected)}`}
               aside={<>{stream.length ? `${stream.length} note${stream.length === 1 ? '' : 's'}` : null}{!isToday && <button className="ml-3 text-accent" onClick={() => setPicked(null)}>Back to today</button>}</>}
