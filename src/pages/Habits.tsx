@@ -6,7 +6,7 @@ import { useToast } from '@/contexts/ToastContext'
 import { HabitHeatmap } from '@/components/HabitHeatmap'
 import { addDays, dayKey, todayKey } from '@/lib/dates'
 import { habitStats } from '@/lib/habits'
-import { IconX } from '@/components/icons'
+import { IconFlame, IconX } from '@/components/icons'
 import type { Habit } from '@/types/db'
 
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
@@ -64,7 +64,7 @@ function HabitRow({ h, values, today, tz, showStreaks, onSave, onRemove }: {
       <div className="mt-2.5 flex flex-wrap items-end gap-x-5 gap-y-2">
         <HabitHeatmap values={values} mask={h.days} target={h.target} start={start} today={today} />
         <div className="flex gap-4 text-xs text-muted">
-          {showStreaks && <span title="Current streak"><span className="text-base font-semibold text-ink tabular-nums">🔥{st.current}</span></span>}
+          {showStreaks && <span title="Current streak"><span className="text-base font-semibold text-ink tabular-nums"><IconFlame size={16} className="-mt-1 mr-0.5 inline text-important" />{st.current}</span></span>}
           {showStreaks && <span title="Best streak (last year)">best <span className="font-semibold text-ink tabular-nums">{st.best}</span></span>}
           {st.rate30 !== null && <span title="Due days met, last 30 days"><span className="font-semibold text-ink tabular-nums">{Math.round(st.rate30 * 100)}%</span> 30d</span>}
         </div>

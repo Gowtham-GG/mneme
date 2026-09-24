@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import type { NoteListItem } from '@/types/db'
 import { displayTitle, previewText, splitHighlight } from '@/lib/text'
 import { formatTime } from '@/lib/dates'
-import { IconStarFill } from './icons'
+import { IconStarFill, IconTasks } from './icons'
 import { TypeGlyph } from './TypeChip'
 
 interface Props {
@@ -44,7 +44,7 @@ export function NoteRow({ note, tz, selected, showTime = true, highlight, to, ti
           <TypeGlyph type={note.note_type} />
           <span className="truncate font-semibold text-ink">{title}</span>
           {note.is_starred && <IconStarFill size={13} className="shrink-0 text-important" aria-label="Starred" />}
-          {!!note.open_tasks && <span className="shrink-0 rounded-full bg-task-soft px-1.5 text-[11px] text-task" title={`${note.open_tasks} open task(s)`}>☐ {note.open_tasks}</span>}
+          {!!note.open_tasks && <span className="shrink-0 rounded-full bg-task-soft px-1.5 text-[11px] text-task" title={`${note.open_tasks} open task(s)`}><IconTasks size={11} className="-mt-0.5 mr-0.5 inline" />{note.open_tasks}</span>}
         </span>
         {highlight
           ? <span className="mt-0.5 line-clamp-2 block text-sm text-muted">{splitHighlight(note.snippet).map((s, i) => s.hit ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>)}</span>

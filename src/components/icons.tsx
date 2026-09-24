@@ -58,3 +58,5 @@ export const IconUnnest = mk(<path d="M18 20v-7a3 3 0 0 0-3-3H6m3.5-3.5L6 10l3.5
 export const IconBoard = mk(<><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><rect x="6.5" y="7" width="5" height="4" rx="1" /><rect x="12.5" y="13" width="5" height="4" rx="1" /><path d="M11.5 9h2.5v4" /></>)
 export const IconSnooze = mk(<path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10zM14 4h4l-4 4.5h4" />)
 export const IconTree = mk(<><rect x="9" y="3" width="6" height="4.5" rx="1.2" /><rect x="3" y="16.5" width="6" height="4.5" rx="1.2" /><rect x="15" y="16.5" width="6" height="4.5" rx="1.2" /><path d="M12 7.5V12M6 16.5V12h12v4.5" /></>)
+export const IconFlame = mk(<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.1 2-5.2 3.6-7 .4 1.7 1.3 2.8 2.4 3.4C11.8 7.6 13 5 15 3c.3 2.6 1.5 4.4 2.6 6 .9 1.4 1.4 2.9 1.4 4.8 0 4.1-2.8 7.2-7 7.2z" />)
+export const IconFlag = mk(<path d="M5.5 21V4m0 0h11l-2 4 2 4h-11" />)

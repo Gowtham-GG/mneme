@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { formatDueDate, formatTimeOfDay, taskDueStatus } from '@/lib/dates'
 import { DueDialog } from '@/components/DueDialog'
 import type { TaskItem, TaskPriority } from '@/types/db'
-import { IconCalendar } from '@/components/icons'
+import { IconCalendar, IconFlag } from '@/components/icons'
 
 export const PRIORITIES: { id: TaskPriority | null; label: string }[] = [
   { id: null, label: 'None' }, { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' },
@@ -38,7 +38,7 @@ export function PriorityPicker({ priority, onChange }: { priority: TaskPriority 
   return (
     <div className="relative">
       <button className={`rounded px-1.5 py-0.5 text-xs ${tone}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {priority ? PRIORITIES.find((p) => p.id === priority)?.label : '⚑'}
+        {priority ? PRIORITIES.find((p) => p.id === priority)?.label : <IconFlag size={14} className="inline" aria-label="Priority" />}
       </button>
       {open && (
         <>

@@ -12,6 +12,7 @@ import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import { browserTimezone, isValidTimezone } from '@/lib/dates'
 import { THEMES, type ThemePref } from '@/lib/themes'
+import { IconFlame } from '@/components/icons'
 
 const zones = (): string[] => {
   try { return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone') } catch { return ['UTC'] }
@@ -233,7 +234,7 @@ export function Settings() {
               onChange={(e) => void update({ show_streaks: e.target.checked }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
               className="size-4 accent-[var(--accent)]"
             />
-            Show streaks 🔥
+            Show streaks <IconFlame size={15} className="text-important" />
           </label>
         </Card>
 

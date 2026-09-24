@@ -7,7 +7,7 @@ import { addStandaloneTask, listTasks, setTaskDone } from '@/api/tasks'
 import { Calendar } from '@/components/Calendar'
 import { Card } from '@/components/Card'
 import { HabitStrip } from '@/components/HabitStrip'
-import { IconClock, IconSearch } from '@/components/icons'
+import { IconClock, IconEdit, IconSearch, IconStarFill } from '@/components/icons'
 import { DueDialog } from '@/components/DueDialog'
 import { NoteRow } from '@/components/NoteRow'
 import { QuickCapture } from '@/components/QuickCapture'
@@ -51,7 +51,7 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
         <h3 className="text-sm font-semibold">{formatDayHeading(day, tz)}</h3>
         {day <= todayKey(tz) && (
           <button onClick={() => void openJournal(day)} className="rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent hover:opacity-80">
-            <span aria-hidden>✎ </span>Journal
+            <IconEdit size={13} className="-mt-0.5 mr-1 inline" />Journal
           </button>
         )}
       </div>
@@ -115,7 +115,7 @@ function OnThisDay({ day, tz }: { day: string; tz: string }) {
             <span className="text-xs text-faint">{label}</span>
             {q.data![i].map((n) => (
               <Link key={n.id} to={`/n/${n.public_id}`} className="max-w-full truncate rounded-full bg-panel px-3 py-1 text-ink no-underline hover:bg-hover hover:no-underline">
-                {n.note_type === 'journal' && <span className="text-accent">✎ </span>}{displayTitle(n)}
+                {n.note_type === 'journal' && <IconEdit size={13} className="-mt-0.5 mr-1 inline text-accent" />}{displayTitle(n)}
               </Link>
             ))}
           </div>
@@ -202,7 +202,7 @@ export function Home() {
                 <div className="flex flex-wrap gap-2">
                   {quick.map(({ n, star }) => (
                     <Link key={n.id} to={`/n/${n.public_id}`} className={`max-w-full truncate rounded-full px-3 py-1 text-sm text-ink no-underline hover:bg-hover hover:no-underline ${star ? 'border border-line' : 'bg-panel'}`}>
-                      {star && <span className="text-important">★ </span>}{displayTitle(n)}
+                      {star && <IconStarFill size={13} className="-mt-0.5 mr-1 inline text-important" />}{displayTitle(n)}
                     </Link>
                   ))}
                 </div>

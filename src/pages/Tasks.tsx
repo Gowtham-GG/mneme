@@ -12,7 +12,7 @@ import { TaskNode } from '@/components/tasks/TaskNode'
 import { TaskUiProvider, useTaskUi } from '@/components/tasks/TaskUi'
 import { ViewToggle } from '@/components/tasks/ViewToggle'
 import type { TaskItem, TaskBucket } from '@/types/db'
-import { IconCalendar, IconSearch, IconX } from '@/components/icons'
+import { IconCalendar, IconSearch, IconSnooze, IconX } from '@/components/icons'
 import { DueDialog } from '@/components/DueDialog'
 
 function TaskList({ items, empty }: { items: TaskItem[] | undefined; empty: string }) {
@@ -38,11 +38,11 @@ function TaskDeepLink() {
 }
 
 const TABS: { id: TaskBucket; label: string; empty: string }[] = [
-  { id: 'today', label: 'Today', empty: 'Nothing due. 🎉' },
+  { id: 'today', label: 'Today', empty: 'Nothing due.' },
   { id: 'upcoming', label: 'Upcoming', empty: 'Nothing scheduled.' },
   { id: 'no_date', label: 'No date', empty: 'Nothing here.' },
   { id: 'completed', label: 'Done', empty: 'Nothing completed yet.' },
-  { id: 'snoozed', label: '💤 Snoozed', empty: 'Nothing snoozed.' },
+  { id: 'snoozed', label: 'Snoozed', empty: 'Nothing snoozed.' },
 ]
 
 export function Tasks() {
@@ -136,7 +136,7 @@ export function Tasks() {
                 return (
                   <button key={t.id} role="tab" aria-selected={on} onClick={() => setSp(t.id === 'today' ? {} : { tab: t.id }, { replace: true })}
                     className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm ${on ? 'bg-accent font-medium text-on-accent' : 'text-muted hover:bg-hover hover:text-ink'}`}>
-                    {t.label}
+                    {t.id === 'snoozed' && <IconSnooze size={15} />}{t.label}
                     {!!n && <span className={`text-xs tabular-nums ${on ? '' : 'text-faint'}`}>{n}</span>}
                     {t.id === 'today' && overdueCount > 0 && <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${on ? 'bg-on-accent/20' : 'bg-danger-soft text-danger'}`} title="Overdue">{overdueCount}!</span>}
                   </button>

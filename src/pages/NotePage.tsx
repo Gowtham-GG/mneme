@@ -9,7 +9,7 @@ import { ConflictDialog } from '@/components/ConflictDialog'
 import { ContextPanel } from '@/components/ContextPanel'
 import { Editor } from '@/components/Editor'
 import { HistoryDialog } from '@/components/HistoryDialog'
-import { IconArchive, IconBack, IconLink, IconMore, IconNotes, IconStar, IconStarFill, IconTrash } from '@/components/icons'
+import { IconArchive, IconBack, IconEdit, IconLink, IconMore, IconNotes, IconStar, IconStarFill, IconTrash } from '@/components/icons'
 import { NoteBody } from '@/components/NoteBody'
 import { SaveStatus } from '@/components/SaveStatus'
 import { TitleField } from '@/components/TitleField'
@@ -190,7 +190,7 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
                 : <span className="text-faint">New note</span>}
               <span>{formatLongDate(createdAt, tz)}</span>
               {persisted && (meta.note_type === 'journal'
-                ? <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 font-medium text-accent"><span aria-hidden>✎</span>Journal</span>
+                ? <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 font-medium text-accent"><IconEdit size={14} />Journal</span>
                 : <TypeChip value={meta.note_type} onChange={(t) => void patch({ note_type: t }).then(() => undefined)} />)}
               {persisted && meta.note_type === 'capture' && (
                 <button className="rounded-full bg-accent-soft px-2.5 py-1 text-accent hover:opacity-80" onClick={() => void setNoteType(id, 'knowledge').then(() => { setMeta((m) => ({ ...m, note_type: 'knowledge' })); refresh(); toast('Promoted to knowledge') })}>

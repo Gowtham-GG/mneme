@@ -6,7 +6,7 @@ import { formatDueDate } from '@/lib/dates'
 import { DuePicker, PriorityPicker } from './pickers'
 import { useTaskTree, useTaskUi } from './TaskUi'
 import type { TaskItem, TaskSequence, TaskTree } from '@/types/db'
-import { IconCheck, IconChevron, IconEdit, IconLock, IconMore, IconSteps, IconX } from '@/components/icons'
+import { IconCheck, IconChevron, IconEdit, IconLock, IconMore, IconSnooze, IconSteps, IconX } from '@/components/icons'
 
 /** Task id to ring (and scroll to) inside a whole-tree view. */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -168,7 +168,7 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
           )}
           {STATE_PILL[t.state] && <span className={`${pill} ${STATE_PILL[t.state]}`}>{STATES.find((s) => s.id === t.state)?.label}</span>}
           {t.blocked && !parentBlocked && !t.sequence_id && <span className={`${pill} bg-panel text-faint`}>Blocked</span>}
-          {t.snoozed && t.snoozed_until && <button className={`${pill} bg-panel text-muted hover:text-ink`} title="Wake it up now" onClick={() => void ui.act.snooze(t, null)}>💤 {formatDueDate(t.snoozed_until, tz)}</button>}
+          {t.snoozed && t.snoozed_until && <button className={`${pill} bg-panel text-muted hover:text-ink`} title="Wake it up now" onClick={() => void ui.act.snooze(t, null)}><IconSnooze size={12} className="-mt-0.5 mr-1 inline" />{formatDueDate(t.snoozed_until, tz)}</button>}
           {t.child_count > 0 && <span className={`${pill} bg-task-soft tabular-nums text-task`}>{t.child_resolved}/{t.child_count}</span>}
           {canvases.map((c) => <span key={c} className={`${pill} bg-accent-soft text-accent`}>{c}</span>)}
           {links.after.map((e) => <LinkChip key={e.link.id} end={e} label="after" onRemove={() => void ui.act.unlink(e.link.id)} />)}

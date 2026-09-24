@@ -5,6 +5,7 @@ import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import { formatDueDate } from '@/lib/dates'
 import type { HabitDay } from '@/types/db'
+import { IconCheck, IconFlame } from '@/components/icons'
 
 /** One tap per habit for `day`: a yes/no habit toggles, a count habit adds one (− takes one back). */
 export function HabitStrip({ day, today, tz }: { day: string; today: string; tz: string }) {
@@ -50,10 +51,10 @@ export function HabitStrip({ day, today, tz }: { day: string; today: string; tz:
               className="relative flex items-center gap-1.5 px-3.5 py-1.5"
               style={!done && counted && pct > 0 ? { background: `linear-gradient(90deg, var(--accent-soft) ${pct}%, transparent ${pct}%)` } : undefined}
             >
-              {!counted && <span aria-hidden>{done ? '✓' : '○'}</span>}
+              {!counted && (done ? <IconCheck size={15} /> : <span aria-hidden className="size-3 rounded-full border-[1.5px] border-current opacity-60" />)}
               <span>{h.name}</span>
               {counted && <span className={`tabular-nums text-xs ${done ? '' : 'text-muted'}`}>{h.value}/{h.target}</span>}
-              {showStreaks && h.streak >= 2 && <span className={`text-xs tabular-nums ${done ? '' : 'text-important'}`} title={`${h.streak}-day streak`}>🔥{h.streak}</span>}
+              {showStreaks && h.streak >= 2 && <span className={`text-xs tabular-nums ${done ? '' : 'text-important'}`} title={`${h.streak}-day streak`}><IconFlame size={13} className="-mt-0.5 mr-px inline" />{h.streak}</span>}
             </button>
           </div>
         )
