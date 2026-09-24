@@ -8,12 +8,12 @@ import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import {
   boardEdges, boundsOf, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, portalPositions,
-  PORTAL_H, PORTAL_W, type BoardData, type EdgeKind, type Portal, type Pt,
+  PORTAL_H, PORTAL_W, progressOf, type BoardData, type EdgeKind, type Portal, type Progress, type Pt,
 } from '@/lib/board'
-import { formatDueDate, taskDueStatus } from '@/lib/dates'
+import { formatDueDate, taskDueStatus, todayKey } from '@/lib/dates'
 import { childrenOf, descendantIds, isResolved, STATES } from '@/lib/taskTree'
 import { TaskNode } from './TaskNode'
-import { useTaskUi } from './TaskUi'
+import { TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
 import { IconCheck, IconLock, IconPlus, IconX } from '@/components/icons'
 
@@ -50,7 +50,9 @@ const BORDER: Record<TaskItem['state'], string> = {
   open: 'border-l-line', in_progress: 'border-l-accent', on_hold: 'border-l-important', done: 'border-l-task', cancelled: 'border-l-faint',
 }
 
-function BoardBox({ t, at, dim, selected, connecting }: { t: TaskItem; at: Pt; dim: boolean; selected: boolean; connecting: boolean }) {
+const PACE: Record<string, [string, string]> = { tight: ['tight', 'text-important'], overdue: ['late', 'text-danger'] }
+
+function BoardBox({ t, at, dim, selected, connecting, progress }: { t: TaskItem; at: Pt; dim: boolean; selected: boolean; connecting: boolean; progress: Progress | null }) {
   const ui = useTaskUi()
   const { timezone: tz } = useSettings()
   const resolved = isResolved(t.state)
@@ -77,10 +79,18 @@ function BoardBox({ t, at, dim, selected, connecting }: { t: TaskItem; at: Pt; d
       </div>
       <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] text-faint">
         {t.state !== 'open' && !resolved && <span className={t.state === 'in_progress' ? 'text-accent' : 'text-important'}>{STATES.find((s) => s.id === t.state)?.label}</span>}
-        {t.child_count > 0 && <span className="tabular-nums text-task">{t.child_resolved}/{t.child_count}</span>}
+        {progress ? <span className="tabular-nums text-task">{progress.left ? `${progress.left} left` : 'all done'}</span>
+          : t.child_count > 0 && <span className="tabular-nums text-task">{t.child_resolved}/{t.child_count}</span>}
+        {progress?.pace && PACE[progress.pace] && <span className={`font-medium ${PACE[progress.pace][1]}`}>{PACE[progress.pace][0]}</span>}
         {t.due_date && <span className={due === 'overdue' ? 'text-danger' : ''}>{formatDueDate(t.due_date, tz)}</span>}
         {t.note_public_id && <span className="tabular-nums">{t.note_public_id}</span>}
       </div>
+      {progress && (
+        <span className="absolute inset-x-2.5 bottom-0.5 h-[3px] overflow-hidden rounded-full bg-panel" aria-hidden>
+          <span className={`block h-full rounded-full ${progress.pace === 'overdue' ? 'bg-danger' : progress.pace === 'tight' ? 'bg-important' : 'bg-task'}`}
+            style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+        </span>
+      )}
       <button type="button" data-handle={t.id} aria-label={`Connect “${t.title}” to…`} title="Drag to another task (or tap, then tap it)"
         className="absolute -right-2.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full">
         <span className="size-2.5 rounded-full border-2 border-accent bg-bg" />
@@ -132,6 +142,10 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
   const portalAt = useMemo(() => portalPositions(portals, drawn), [portals, drawn])
   const chain = useMemo(() => (sel && byId.has(sel) ? chainOf(data, sel) : null), [data, sel, byId])
   const selTask = sel ? byId.get(sel) : undefined
+  const { timezone: tz } = useSettings()
+  const today = todayKey(tz)
+  const progress = useMemo(() => new Map(data.tasks.filter((t) => t.child_count > 0).map((t) => [t.id, progressOf(data, t.id, today)])), [data, today])
+  const selProgress = sel ? progress.get(sel) ?? null : null
 
   const rect = () => ref.current!.getBoundingClientRect()
   const fit = () => {
@@ -327,7 +341,8 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           )}
         </svg>
         {data.tasks.map((t) => (
-          <BoardBox key={t.id} t={t} at={drawn.get(t.id)!} dim={!!chain && !chain.has(t.id)} selected={sel === t.id} connecting={connect?.from === t.id} />
+          <BoardBox key={t.id} t={t} at={drawn.get(t.id)!} dim={!!chain && !chain.has(t.id)} selected={sel === t.id} connecting={connect?.from === t.id}
+            progress={progress.get(t.id) ?? null} />
         ))}
         {portals.map((p) => portalAt.get(p.id) && <PortalBox key={p.id} p={p} at={portalAt.get(p.id)!} dim={!!chain && !chain.has(p.taskId)} onGo={goTo} />)}
       </div>
@@ -374,6 +389,14 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
       {selTask && (
         <div data-card className="glass-strong absolute inset-x-2 bottom-2 z-10 rounded-2xl p-1.5 lg:inset-x-auto lg:bottom-auto lg:right-2 lg:top-14 lg:w-[380px]">
           <ul><TaskNode t={selTask} tree={data} leafOnly {...siblingsOf(selTask)} /></ul>
+          {selProgress && (
+            <p className="px-2 text-xs text-muted">
+              {selProgress.done} of {selProgress.total} steps done
+              {selProgress.daysLeft !== null && selProgress.left > 0 && <> · {selProgress.daysLeft < 0 ? `${-selProgress.daysLeft} day${selProgress.daysLeft === -1 ? '' : 's'} late` : selProgress.daysLeft === 0 ? 'due today' : `${selProgress.daysLeft} day${selProgress.daysLeft === 1 ? '' : 's'} to go`}</>}
+              {selProgress.pace === 'tight' && <span className="text-important"> — tight</span>}
+            </p>
+          )}
+          <div className="px-2"><TaskMentions taskId={selTask.id} /></div>
           <div className="flex justify-end gap-3 px-2 pb-1 pt-0.5 text-xs text-muted">
             <button className="hover:text-accent" onClick={() => setConnect({ from: selTask.id, at: null })}>Connect…</button>
             <button className="hover:text-accent" onClick={() => ui.openTree(selTask.root_id, selTask.id)}>Whole task</button>

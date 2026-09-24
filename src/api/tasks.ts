@@ -19,9 +19,35 @@ export async function setTaskState(id: string, state: TaskState): Promise<void> 
   if (error) throw toError(error)
 }
 
-export async function addStandaloneTask(title: string, due_date: string | null = null, due_time: string | null = null): Promise<void> {
-  const { error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim(), due_date, due_time: due_date ? due_time : null })
+/** A new main task. A date typed in the title ("… tomorrow 3pm") is read by the database; returns what it made of it. */
+export async function addStandaloneTask(title: string, due_date: string | null = null, due_time: string | null = null): Promise<{ title: string; due_date: string | null; due_time: string | null }> {
+  const { data, error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim(), due_date, due_time: due_date ? due_time : null })
+    .select('title,due_date,due_time').single()
   if (error) throw toError(error)
+  return data as { title: string; due_date: string | null; due_time: string | null }
+}
+
+/** Hide a task from every list until `until` (null = wake it now). */
+export async function snoozeTask(id: string, until: string | null): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ snoozed_until: until }).eq('id', id)
+  if (error) throw toError(error)
+}
+
+export interface Mention { id: string; public_id: string; title: string | null; note_type: string; updated_at: string }
+
+/** Notes that link to the task with [[T-…]]. */
+export async function taskMentions(id: string): Promise<Mention[]> {
+  const { data, error } = await supabase.rpc('task_mentions', { p_task: id })
+  if (error) throw toError(error)
+  return (data as Mention[]) ?? []
+}
+
+/** Tasks a note links to, by their T- codes. */
+export async function tasksByCodes(codes: string[]): Promise<TaskItem[]> {
+  if (!codes.length) return []
+  const { data, error } = await supabase.from('tasks_active').select('*').in('code', codes)
+  if (error) throw toError(error)
+  return (data as TaskItem[]) ?? []
 }
 
 /** A new main task; returns its id (the board places it). */

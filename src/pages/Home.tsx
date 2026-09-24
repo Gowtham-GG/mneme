@@ -36,8 +36,10 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
     if (!title.trim() || busy) return
     setBusy(true)
     try {
-      await addStandaloneTask(title, day, time || null)
+      const made = await addStandaloneTask(title, day, time || null)
       setTitle(''); setTime('')
+      // a date typed into the title was read: say what it became
+      if (made.title !== title.trim() && made.due_date) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
       void qc.invalidateQueries({ queryKey: ['tasks'] }); void qc.invalidateQueries({ queryKey: ['notes'] })
     } catch { toast('Couldn’t add that.', { kind: 'error' }) } finally { setBusy(false) }
   }
@@ -85,6 +87,41 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
         <button type="submit" disabled={!title.trim() || busy} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
       </form>
     </div>
+  )
+}
+
+/** The same day a month and a year back (the 31st → the month's last day; 29 Feb → 28 Feb). */
+function sameDayBack(key: string, months: number): string {
+  const [y, m, d] = key.split('-').map(Number)
+  const first = new Date(Date.UTC(y, m - 1 - months, 1))
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate()
+  return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`
+}
+
+/** Notes and journal pages written a month / a year ago today — quiet, only when there are some. */
+function OnThisDay({ day, tz }: { day: string; tz: string }) {
+  const backs = [['A year ago', sameDayBack(day, 12)], ['A month ago', sameDayBack(day, 1)]] as const
+  const q = useQuery({
+    queryKey: ['notes', 'on-this-day', day, tz],
+    queryFn: () => Promise.all(backs.map(([, k]) => listNotes({ from: startOfDayISO(k, tz), to: startOfDayISO(addDays(k, 1), tz), state: 'all', limit: 5 }))),
+    staleTime: 10 * 60_000,
+  })
+  if (!q.data?.some((l) => l.length)) return null
+  return (
+    <Card title="On this day" className="rise">
+      <div className="space-y-2">
+        {backs.map(([label], i) => !!q.data![i].length && (
+          <div key={label} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+            <span className="text-xs text-faint">{label}</span>
+            {q.data![i].map((n) => (
+              <Link key={n.id} to={`/n/${n.public_id}`} className="max-w-full truncate rounded-full bg-panel px-3 py-1 text-ink no-underline hover:bg-hover hover:no-underline">
+                {n.note_type === 'journal' && <span className="text-accent">✎ </span>}{displayTitle(n)}
+              </Link>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 
@@ -157,6 +194,8 @@ export function Home() {
                 {stream.map((n) => <NoteRow key={n.id} note={n} tz={tz} />)}
               </div>
             </Card>
+
+            {isToday && <OnThisDay day={day} tz={tz} />}
 
             {!!quick.length && (
               <Card title="Starred & recent" className="rise">

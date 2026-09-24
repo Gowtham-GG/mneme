@@ -16,13 +16,15 @@ interface SettingsValue {
   reminderLeadMinutes: number
   reminderMorningTime: string
   showStreaks: boolean
+  backupEnabled: boolean
+  backupWeekday: number
   ready: boolean
   update: (patch: SettingsPatch) => Promise<void>
 }
 
 const SettingsContext = createContext<SettingsValue>({
   timezone: 'UTC', theme: 'amethyst', activeTheme: 'amethyst',
-  remindersEnabled: false, reminderLeadMinutes: 60, reminderMorningTime: '09:00', showStreaks: true,
+  remindersEnabled: false, reminderLeadMinutes: 60, reminderMorningTime: '09:00', showStreaks: true, backupEnabled: false, backupWeekday: 7,
   ready: false, update: async () => {},
 })
 const THEME_KEY = 'mneme-theme'
@@ -48,6 +50,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const reminderLeadMinutes = q.data?.reminder_lead_minutes ?? 60
   const reminderMorningTime = q.data?.reminder_morning_time ?? '09:00'
   const showStreaks = q.data?.show_streaks ?? true
+  const backupEnabled = q.data?.backup_enabled ?? false
+  const backupWeekday = q.data?.backup_weekday ?? 7
 
   const [dark, setDark] = useState(prefersDark)
   useEffect(() => {
@@ -85,10 +89,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       timezone, theme, activeTheme: resolveTheme(theme, dark),
-      remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks,
+      remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, backupEnabled, backupWeekday,
       ready: !user || q.isSuccess, update,
     }),
-    [timezone, theme, dark, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, user, q.isSuccess, update],
+    [timezone, theme, dark, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, backupEnabled, backupWeekday, user, q.isSuccess, update],
   )
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

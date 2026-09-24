@@ -268,6 +268,21 @@ account itself was created with, until you verify your own domain — the exact 
 emails already have. Until then, reminder emails will only actually arrive at that one address regardless of which
 account's task triggered them.
 
+### 5.7 Device notifications and weekly backups (optional)
+
+Both ride on the same `task-reminders` function and cron as the emails above (so do 5.6 first). Each function is one self-contained `index.ts`, so the CLI or the Dashboard editor (paste the whole file) both work.
+
+1. Make a key pair once: `node scripts/vapid-keys.mjs`.
+2. Supabase secrets: `supabase secrets set MNEME_VAPID_PUBLIC_KEY=<public> MNEME_VAPID_PRIVATE_KEY=<private> MNEME_VAPID_SUBJECT=mailto:<you@…> MNEME_APP_URL=https://<your-mneme-domain>`.
+3. Vercel env: `VITE_VAPID_PUBLIC_KEY=<public>` (the same public key), then redeploy the frontend.
+4. Redeploy `supabase functions deploy task-reminders` and deploy the test sender `supabase functions deploy push-test`.
+5. In the app: Settings → Notifications → "Notify me on this device" (once per phone/computer) → Send a test.
+   On iPhone, add Mneme to the Home Screen first and turn it on from there. Settings → Backup → "Email me a weekly
+   backup" (it comes at the daily email time on the chosen weekday; the Resend sandbox caveat above applies).
+
+Restore: Settings → Backup → Restore from a file (the emailed `.zip` or a downloaded `.json`) — into an account that
+has no notes or tasks yet. Everything except the password vault comes back, with the same `N-…` note IDs.
+
 ---
 
 ## 6. Deploy to Vercel

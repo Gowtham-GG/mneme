@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/Dialog'
 import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
-import { todayKey } from '@/lib/dates'
+import { formatDueDate, formatTimeOfDay, todayKey } from '@/lib/dates'
 import { Card } from '@/components/Card'
 import { TaskNode } from '@/components/tasks/TaskNode'
 import { TaskUiProvider, useTaskUi } from '@/components/tasks/TaskUi'
@@ -41,6 +41,7 @@ const TABS: { id: TaskBucket; label: string; empty: string }[] = [
   { id: 'upcoming', label: 'Upcoming', empty: 'Nothing scheduled.' },
   { id: 'no_date', label: 'No date', empty: 'Nothing here.' },
   { id: 'completed', label: 'Done', empty: 'Nothing completed yet.' },
+  { id: 'snoozed', label: '💤 Snoozed', empty: 'Nothing snoozed.' },
 ]
 
 export function Tasks() {
@@ -65,7 +66,12 @@ export function Tasks() {
   const add = async () => {
     const t = title.trim()
     if (!t) return
-    try { await addStandaloneTask(t, tab === 'today' ? today : null); setTitle(''); refresh() } catch { toast('Couldn’t add the task.', { kind: 'error' }) }
+    try {
+      const made = await addStandaloneTask(t, tab === 'today' ? today : null)
+      setTitle(''); refresh()
+      // a date typed into the title was read: say what it became
+      if (made.title !== t && made.due_date) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
+    } catch { toast('Couldn’t add the task.', { kind: 'error' }) }
   }
   const clearDone = async () => {
     setConfirmClear(false)
@@ -92,7 +98,7 @@ export function Tasks() {
         </div>
 
         <form className="mb-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); void add() }}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tab === 'today' ? 'Add a task for today…' : 'Add a task…'} aria-label="New task" maxLength={500}
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tab === 'today' ? 'Add a task for today…' : 'Add a task… (“call bank tomorrow 3pm”)'} aria-label="New task" maxLength={500}
             className="glass min-w-0 flex-1 rounded-2xl px-4 py-3 outline-none" />
           <button disabled={!title.trim()} className="rounded-2xl bg-accent px-5 py-2 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
         </form>
@@ -107,6 +113,7 @@ export function Tasks() {
               {TABS.map((t) => {
                 const n = lists[t.id].data?.length
                 const on = t.id === tab
+                if (t.id === 'snoozed' && !n && !on) return null
                 return (
                   <button key={t.id} role="tab" aria-selected={on} onClick={() => setSp(t.id === 'today' ? {} : { tab: t.id }, { replace: true })}
                     className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm ${on ? 'bg-accent font-medium text-on-accent' : 'text-muted hover:bg-hover hover:text-ink'}`}>

@@ -207,7 +207,7 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
             {/* context: below the note on small screens */}
             {!desktop && persisted && (
               <div className="mt-8 border-t border-line pt-5">
-                <ContextPanel ctx={ctx.data} tz={tz} noteId={id} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
+                <ContextPanel ctx={ctx.data} tz={tz} noteId={id} content={ed.content} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
                   paperRef={meta.paper_ref} onPaperRef={(v) => setMeta((m) => ({ ...m, paper_ref: v }))} onAddTag={(n) => void addManualTag(id, n).then(() => { void ctx.refetch(); refresh() }).catch(() => toast('That isn’t a valid tag name.', { kind: 'error' }))}
                   onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} onUpdateTask={onUpdateTask} />
               </div>
@@ -219,7 +219,7 @@ function NoteEditorView({ id, initial, createdAt, sid, startEditing }: { id: str
       {/* context panel: right column on desktop */}
       {desktop && persisted && (
         <aside aria-label="Note context" className="w-72 shrink-0 overflow-y-auto border-l border-line bg-panel p-5">
-          <ContextPanel ctx={ctx.data} tz={tz} noteId={id} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
+          <ContextPanel ctx={ctx.data} tz={tz} noteId={id} content={ed.content} publicId={ed.publicId} createdAt={createdAt} updatedAt={meta.updated_at}
             paperRef={meta.paper_ref} onPaperRef={(v) => setMeta((m) => ({ ...m, paper_ref: v }))} onAddTag={(n) => void addManualTag(id, n).then(() => { void ctx.refetch(); refresh() }).catch(() => toast('That isn’t a valid tag name.', { kind: 'error' }))}
             onRemoveTag={(t) => void onRemoveTag(t)} onToggleTask={toggleTask} onUpdateTask={onUpdateTask} />
         </aside>

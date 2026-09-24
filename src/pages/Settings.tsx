@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { signOut } from '@/api/auth'
-import { exportJson, exportMarkdownZip, exportTasksCsv } from '@/api/export'
+import { download, exportJson, exportMarkdownZip, exportTasksCsv } from '@/api/export'
+import { exportBackup, importBackup, readBackupFile } from '@/api/backup'
+import { ConfirmDialog } from '@/components/Dialog'
+import { currentPush, disablePush, enablePush, pushConfigured, pushSupported, sendTestPush } from '@/lib/push'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useSettings } from '@/contexts/SettingsContext'
@@ -12,6 +15,106 @@ import { THEMES, type ThemePref } from '@/lib/themes'
 
 const zones = (): string[] => {
   try { return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone') } catch { return ['UTC'] }
+}
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+/** This device's notifications: on/off, blocked, or unsupported — and a test. */
+function NotificationsCard() {
+  const { toast } = useToast()
+  const [on, setOn] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const supported = pushSupported()
+  useEffect(() => { if (supported) currentPush().then((s) => setOn(!!s), () => setOn(false)) }, [supported])
+  const denied = supported && Notification.permission === 'denied'
+  const flip = async (want: boolean) => {
+    setBusy(true)
+    try { await (want ? enablePush() : disablePush()); setOn(want); if (want) toast('Notifications are on for this device') }
+    catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t change notifications.', { kind: 'error' }) } finally { setBusy(false) }
+  }
+  const test = async () => {
+    setBusy(true)
+    try { const n = await sendTestPush(); toast(n ? `Sent to ${n} device${n === 1 ? '' : 's'}` : 'No device is set up yet.') }
+    catch { toast('Couldn’t send a test.', { kind: 'error' }) } finally { setBusy(false) }
+  }
+  return (
+    <Card title="Notifications">
+      {!supported ? (
+        <p className="text-sm text-muted">This browser can’t show notifications. On iPhone, add Mneme to your Home Screen first, then open it from there.</p>
+      ) : !pushConfigured ? (
+        <p className="text-sm text-muted">Notifications aren’t set up on the server yet.</p>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-muted">Reminders pop up on this device — before timed tasks and with the morning summary — even when Mneme is closed.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2.5 text-sm">
+              <input type="checkbox" checked={!!on} disabled={busy || on === null || (denied && !on)} onChange={(e) => void flip(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+              Notify me on this device
+            </label>
+            {on && <button disabled={busy} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-hover" onClick={() => void test()}>Send a test</button>}
+          </div>
+          {denied && !on && <p className="mt-2 text-sm text-danger">Blocked for this site — allow notifications in your browser’s site settings.</p>}
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** Weekly emailed backup, download now, restore into an empty account. */
+function BackupCard() {
+  const { backupEnabled, backupWeekday, reminderMorningTime, update } = useSettings()
+  const { toast } = useToast()
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<{ backup: Record<string, unknown>; notes: number; tasks: number } | null>(null)
+  const save = (patch: Parameters<typeof update>[0]) => void update(patch).catch(() => toast('Couldn’t save that.', { kind: 'error' }))
+  const downloadNow = async () => {
+    setBusy(true)
+    try { const b = await exportBackup(); download(`mneme-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(b), 'application/json'); toast('Backup downloaded') }
+    catch { toast('Couldn’t make the backup.', { kind: 'error' }) } finally { setBusy(false) }
+  }
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const backup = await readBackupFile(file)
+      setPending({ backup, notes: (backup.notes as unknown[] | undefined)?.length ?? 0, tasks: (backup.tasks as unknown[] | undefined)?.length ?? 0 })
+    } catch (e) { toast(e instanceof Error ? e.message : 'Couldn’t read that file.', { kind: 'error' }) }
+  }
+  const restore = async () => {
+    if (!pending) return
+    setBusy(true)
+    try { const r = await importBackup(pending.backup); await qc.invalidateQueries(); toast(`Restored ${r.notes} notes and ${r.tasks} tasks`) }
+    catch (e) { toast(e instanceof Error && e.message ? e.message : 'Couldn’t restore the backup.', { kind: 'error' }) } finally { setBusy(false); setPending(null) }
+  }
+  return (
+    <Card title="Backup" id="backup">
+      <p className="mb-3 text-sm text-muted">Everything except your passwords — notes, tasks, canvases, habits, history. Restoring it into another (empty) account makes the same library there.</p>
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <label className="flex items-center gap-2.5">
+          <input type="checkbox" checked={backupEnabled} onChange={(e) => save({ backup_enabled: e.target.checked })} className="size-4 accent-[var(--accent)]" />
+          Email me a weekly backup
+        </label>
+        {backupEnabled && (
+          <label className="flex items-center gap-2 text-muted">
+            every
+            <select value={backupWeekday} onChange={(e) => save({ backup_weekday: Number(e.target.value) })} className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm text-ink">
+              {WEEKDAYS.map((d, i) => <option key={d} value={i + 1}>{d}</option>)}
+            </select>
+            at {reminderMorningTime.slice(0, 5)}
+          </label>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50" onClick={() => void downloadNow()}>Download backup</button>
+        <label className={`cursor-pointer rounded-lg border border-line px-4 py-2 text-sm hover:bg-hover ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+          Restore from a file…
+          <input type="file" accept=".json,.zip,application/json,application/zip" className="sr-only" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = '' }} />
+        </label>
+      </div>
+      <ConfirmDialog open={!!pending} title="Restore this backup?" confirmLabel="Restore" onClose={() => setPending(null)} onConfirm={() => void restore()}
+        body={`${pending?.notes ?? 0} notes and ${pending?.tasks ?? 0} tasks will be added. This only works in an account that has no notes or tasks yet.`} />
+    </Card>
+  )
 }
 
 function Card({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
@@ -121,6 +224,8 @@ export function Settings() {
           )}
         </Card>
 
+        <NotificationsCard />
+
         <Card title="Habits">
           <label className="flex items-center gap-2.5 text-sm">
             <input
@@ -141,6 +246,8 @@ export function Settings() {
           </div>
           {msg && <p role="status" className="mt-2 text-sm text-muted">{msg}</p>}
         </Card>
+
+        <BackupCard />
 
         <Card title="Your library">
           <p className="text-sm text-muted">{stats.data ? `${stats.data.notes.toLocaleString()} notes · ${stats.data.openTasks.toLocaleString()} open tasks` : '…'}</p>

@@ -105,10 +105,10 @@ function ClockPicker({ value, onChange }: { value: string; onChange: (hhmm: stri
  * Due date + time picker: a month calendar and a clock dial. Nothing is saved until OK;
  * Cancel (or closing) leaves the task as it was. `timeOnly` = just the clock.
  */
-export function DueDialog({ open, date, time, tz, onOk, onClose, timeOnly, title = 'Due' }: {
+export function DueDialog({ open, date, time, tz, onOk, onClose, timeOnly, dateOnly, title = 'Due' }: {
   open: boolean; date: string | null; time: string | null; tz: string
   onOk: (date: string | null, time: string | null) => void; onClose: () => void
-  timeOnly?: boolean; title?: string
+  timeOnly?: boolean; dateOnly?: boolean; title?: string
 }) {
   const today = todayKey(tz)
   const [d, setD] = useState(date)
@@ -130,7 +130,7 @@ export function DueDialog({ open, date, time, tz, onOk, onClose, timeOnly, title
         <h2 className="text-base font-semibold">{title}</h2>
         <span className="text-sm text-muted">{summary}</span>
       </div>
-      {!timeOnly && (
+      {!timeOnly && !dateOnly && (
         <div className="mb-3 flex gap-1" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'date'} className={tabCls(tab === 'date')} onClick={() => setTab('date')}>Date</button>
           <button type="button" role="tab" aria-selected={tab === 'time'} className={tabCls(tab === 'time')} onClick={() => (t ? setTab('time') : startTime())}>Time</button>

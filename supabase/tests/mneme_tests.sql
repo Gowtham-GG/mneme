@@ -1306,5 +1306,183 @@ begin
   perform t.logout();
 end $$;
 
+-- ============================================ typed dates, snooze, mentions ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+        d0 date := '2026-09-25'; r record; x uuid; y uuid; n1 uuid; c text; today date;
+begin
+  -- the parser on its own
+  select * into r from mneme.parse_due('call bank tomorrow 3pm', d0);
+  perform t.ok(r.title = 'call bank' and r.due_date = d0 + 1 and r.due_time = '15:00' and r.has_date, 'tomorrow 3pm');
+  select * into r from mneme.parse_due('pay rent on friday', d0);  -- d0 is a Friday
+  perform t.ok(r.title = 'pay rent' and r.due_date = d0, 'on friday (today)');
+  select * into r from mneme.parse_due('call mom next friday', d0);
+  perform t.ok(r.due_date = d0 + 7, 'next friday skips today');
+  select * into r from mneme.parse_due('meet at 5', d0);
+  perform t.ok(r.title = 'meet' and r.due_date = d0 and r.due_time = '17:00' and not r.has_date, 'at 5 = 5pm, today, time only');
+  select * into r from mneme.parse_due('book flights sep 3rd, 2027', d0);
+  perform t.ok(r.title = 'book flights' and r.due_date = '2027-09-03', 'month day, year');
+  select * into r from mneme.parse_due('invoice 3 sep', d0);
+  perform t.ok(r.due_date = '2027-09-03', 'a day already past this year means next year');
+  select * into r from mneme.parse_due('report due 5/10', d0);
+  perform t.ok(r.title = 'report' and r.due_date = '2026-10-05', 'day/month');
+  select * into r from mneme.parse_due('review in 2 weeks', d0);
+  perform t.ok(r.due_date = d0 + 14, 'in 2 weeks');
+  select * into r from mneme.parse_due('standup 9:15am', d0);
+  perform t.ok(r.due_time = '09:15', '9:15am');
+  select * into r from mneme.parse_due('deploy 2026-12-01 noon', d0);
+  perform t.ok(r.due_date = '2026-12-01' and r.due_time = '12:00', 'ISO date + noon');
+  perform t.ok((select p.due_date from mneme.parse_due('Sat down with Sam', d0) p) is null, 'short weekday names need on/by/next');
+  perform t.ok((select p.due_date from mneme.parse_due('ratio 3:2 notes', d0) p) is null, 'not a time');
+  perform t.ok((select p.due_date from mneme.parse_due('invoice by 31/2', d0) p) is null, 'an impossible date is ignored');
+  select * into r from mneme.parse_due('tomorrow', d0);
+  perform t.ok(r.title = 'tomorrow' and r.due_date is null, 'nothing but date words: kept as text');
+
+  perform t.login(a);
+  update mneme.settings set timezone = 'UTC';
+  today := mneme.user_today();
+
+  -- task boxes take the words out
+  insert into mneme.tasks (source, title) values ('standalone', 'call bank tomorrow 3pm') returning id into x;
+  select * into r from mneme.tasks where id = x;
+  perform t.ok(r.title = 'call bank' and r.due_date = today + 1 and r.due_time = '15:00', 'a new task reads its typed date');
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'dentist at 4pm', today + 3) returning id into x;
+  perform t.ok((select (due_date, due_time) from mneme.tasks where id = x) = row(today + 3, '16:00'::time), 'a typed time joins the chosen day');
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'lunch tomorrow', today + 3) returning id into x;
+  perform t.ok((select due_date from mneme.tasks where id = x) = today + 1, 'a typed date wins over the chosen day');
+  update mneme.tasks set title = 'call bank tomorrow' where id = x;
+  perform t.ok((select title from mneme.tasks where id = x) = 'call bank tomorrow', 'renaming never reads dates');
+
+  -- a note line keeps its text
+  insert into mneme.notes (content) values (E'- [ ] pay rent on friday\n- [ ] plain') returning id into n1;
+  select * into r from mneme.tasks where note_id = n1 and title like 'pay rent%';
+  perform t.ok(r.title = 'pay rent on friday' and r.due_date is not null, 'a new checkbox line gets its date, text kept');
+  update mneme.notes set content = E'- [ ] pay rent on friday\n- [ ] plain tomorrow' where id = n1;
+  perform t.ok((select due_date from mneme.tasks where note_id = n1 and title = 'plain tomorrow') = today + 1, 'a line finished after autosave still gets its date');
+  perform mneme.add_subtask((select id from mneme.tasks where note_id = n1 and title = 'plain tomorrow'), 'buy stamps at 6pm');
+  c := (select content from mneme.notes where id = n1);
+  perform t.ok(c like E'%\n  - [ ] buy stamps' and (select due_time from mneme.tasks where note_id = n1 and title = 'buy stamps') = '18:00',
+               'adding under a note task takes the words out and dates it');
+
+  -- snooze
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'Snoozy', today) returning id into y;
+  perform t.ok(exists (select 1 from mneme.list_tasks('today') where id = y), 'setup: on Today');
+  update mneme.tasks set snoozed_until = today + 2 where id = y;
+  perform t.ok(not exists (select 1 from mneme.list_tasks('today') where id = y), 'a snoozed task leaves Today');
+  perform t.ok(exists (select 1 from mneme.list_tasks('snoozed') where id = y), '…and shows in Snoozed');
+  perform t.ok(not exists (select 1 from jsonb_array_elements(mneme.board_data(null)->'tasks') e where e->>'id' = y::text), '…and leaves the board');
+  update mneme.tasks set snoozed_until = today where id = y;
+  perform t.ok(exists (select 1 from mneme.list_tasks('today') where id = y) and not (select snoozed from mneme.tasks_active where id = y),
+               'on its day it is back');
+
+  -- mentions
+  insert into mneme.notes (content) values (format('Plan: see [[%s]] and [[%s|the bank]]', mneme.task_code(x), mneme.task_code(y))) returning id into n1;
+  perform t.ok((select count(*) from mneme.task_mentions(x)) = 1 and (select count(*) from mneme.task_mentions(y)) = 1, 'task_mentions finds [[T-…]] links');
+  perform t.logout();
+end $$;
+
+-- ================================================ push + reminder channels ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002'; x uuid; cnt int; se boolean;
+begin
+  perform t.login(b);
+  update mneme.settings set timezone = 'UTC', reminders_enabled = false, reminder_lead_minutes = 60;
+  insert into mneme.push_subscriptions (endpoint, p256dh, auth, device) values ('https://push.example/abc', 'key', 'sec', 'Pixel');
+  perform t.ok(t.throws($q$insert into mneme.push_subscriptions (endpoint, p256dh, auth) values ('http://insecure', 'k', 's')$q$), 'push endpoints must be https');
+  insert into mneme.tasks (source, title, due_date, due_time) values ('standalone', 'B timed', (now() at time zone 'UTC')::date, ((now() at time zone 'UTC') + interval '10 minutes')::time)
+    returning id into x;
+  perform t.logout();
+  perform t.login(a);
+  perform t.ok(not exists (select 1 from mneme.push_subscriptions where user_id = b), 'A can''t see B''s devices');
+  perform t.ok(t.throws('select * from mneme.push_targets(array[]::uuid[])'), 'authenticated can''t list push targets');
+  perform t.logout();
+
+  execute 'set local role service_role';
+  select count(*), bool_and(send_email) into cnt, se from mneme.tasks_due_for_reminder() where task_id = x;
+  perform t.ok(cnt = 1 and se = false, 'a user with only a device gets reminders, without email');
+  perform t.ok((select count(*) from mneme.push_targets(array[b])) = 1, 'push_targets lists the device');
+  perform mneme.push_result('https://push.example/abc', false);
+  perform t.ok((select count(*) from mneme.push_targets(array[b])) = 0, 'a gone subscription is dropped');
+  execute 'reset role';
+end $$;
+
+-- =========================================================== backup/import ===
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; c uuid := 'cccccccc-0000-0000-0000-000000000003';
+        bk jsonb; res jsonb; ca int; cc int; qa text; qc text;
+begin
+  insert into auth.users (id, email) values (c, 'c@test') on conflict do nothing;
+  perform t.login(a);
+  insert into mneme.vault_meta (iterations, salt, check_payload) values (600000, 'c2FsdHNhbHRzYWx0c2FsdA==', 'VAULTCHECK') on conflict do nothing;
+  update mneme.settings set backup_enabled = true, backup_weekday = 3, theme = 'amethyst';
+  bk := mneme.export_backup();
+  perform t.ok(bk->>'format' = 'mneme-backup' and jsonb_array_length(bk->'notes') > 5 and jsonb_array_length(bk->'tasks') > 5, 'export_backup has notes and tasks');
+  perform t.ok(not (bk ? 'vault_items') and not (bk ? 'vault_meta') and bk::text not like '%VAULTCHECK%' and bk::text not like '%c2FsdHNhbHRzYWx0c2FsdA%', 'the vault is left out');
+  perform t.ok(t.throws(format('select mneme.import_backup(%L::jsonb)', bk)), 'import refuses an account that already has notes');
+  perform t.ok(t.throws(format('select mneme.backup_data(%L)', a)), 'authenticated can''t call backup_data directly');
+  perform t.logout();
+
+  perform t.login(c);
+  perform t.ok(t.throws($q$select mneme.import_backup('{"format":"other"}'::jsonb)$q$), 'import refuses a file that isn''t a backup');
+  res := mneme.import_backup(bk);
+  perform t.ok((res->>'notes')::int = jsonb_array_length(bk->'notes'), 'every note came back');
+  perform t.logout();
+
+  -- compare the two accounts as the database owner
+  select string_agg(public_id || ':' || md5(content) || ':' || coalesce(title, '') || ':' || note_type || ':' || is_starred::text || ':' || coalesce(deleted_at::text, ''), ',' order by public_id)
+    into qa from mneme.notes where user_id = a;
+  select string_agg(public_id || ':' || md5(content) || ':' || coalesce(title, '') || ':' || note_type || ':' || is_starred::text || ':' || coalesce(deleted_at::text, ''), ',' order by public_id)
+    into qc from mneme.notes where user_id = c;
+  perform t.ok(qa = qc, 'notes are identical — same N- ids, text, titles, types, stars, trash');
+
+  select string_agg(t.title || ':' || t.state || ':' || coalesce(t.due_date::text, '-') || ':' || coalesce(t.due_time::text, '-') || ':' || coalesce(t.priority, '-')
+                    || ':' || coalesce(p.title, '-') || ':' || coalesce(s.title, '-') || ':' || coalesce(t.snoozed_until::text, '-') || ':' || t.source, ',' order by 1)
+    into qa from mneme.tasks t left join mneme.tasks p on p.id = t.parent_id left join mneme.task_sequences s on s.id = t.sequence_id
+   where t.user_id = a and t.removed_at is null;
+  select string_agg(t.title || ':' || t.state || ':' || coalesce(t.due_date::text, '-') || ':' || coalesce(t.due_time::text, '-') || ':' || coalesce(t.priority, '-')
+                    || ':' || coalesce(p.title, '-') || ':' || coalesce(s.title, '-') || ':' || coalesce(t.snoozed_until::text, '-') || ':' || t.source, ',' order by 1)
+    into qc from mneme.tasks t left join mneme.tasks p on p.id = t.parent_id left join mneme.task_sequences s on s.id = t.sequence_id
+   where t.user_id = c and t.removed_at is null;
+  perform t.ok(not exists (select unnest(string_to_array(qa, ',')) except all select unnest(string_to_array(qc, ',')))
+               and not exists (select unnest(string_to_array(qc, ',')) except all select unnest(string_to_array(qa, ',')))
+               and qa is not null, 'tasks are identical — titles, states, dates, priorities, parents, sequences, snoozes');
+
+  -- links between live tasks (a link to a task whose note line is gone isn't part of the backup)
+  select count(*) into ca from mneme.task_links l where l.user_id = a
+     and exists (select 1 from mneme.tasks f where f.id = l.from_task_id and f.removed_at is null)
+     and exists (select 1 from mneme.tasks g where g.id = l.to_task_id and g.removed_at is null);
+  select count(*) into cc from mneme.task_links where user_id = c;
+  perform t.ok(ca = cc, format('task links came back (%s)', ca));
+  select string_agg(name, ',' order by name) into qa from mneme.canvases where user_id = a;
+  select string_agg(name, ',' order by name) into qc from mneme.canvases where user_id = c;
+  perform t.ok(qa is not distinct from qc, 'canvases came back');
+  select count(*) into ca from mneme.board_positions where user_id = a;  select count(*) into cc from mneme.board_positions where user_id = c;
+  perform t.ok(ca = cc, 'board positions came back');
+  select count(*) into ca from mneme.note_links where user_id = a;  select count(*) into cc from mneme.note_links where user_id = c;
+  perform t.ok(ca = cc, format('note links came back (%s)', ca));
+  select string_agg(g.name, ',' order by g.name) into qa from mneme.note_tags x join mneme.tags g on g.id = x.tag_id where x.user_id = a;
+  select string_agg(g.name, ',' order by g.name) into qc from mneme.note_tags x join mneme.tags g on g.id = x.tag_id where x.user_id = c;
+  perform t.ok(qa is not distinct from qc, 'tags (inline and manual) came back');
+  select count(*) into ca from mneme.habit_logs where user_id = a;  select count(*) into cc from mneme.habit_logs where user_id = c;
+  perform t.ok(ca = cc and (select count(*) from mneme.habits where user_id = a) = (select count(*) from mneme.habits where user_id = c), 'habits and their logs came back');
+  select count(*) into ca from mneme.note_revisions where user_id = a;  select count(*) into cc from mneme.note_revisions where user_id = c;
+  perform t.ok(ca = cc, 'note history came back');
+  perform t.ok((select backup_enabled and backup_weekday = 3 from mneme.settings where user_id = c), 'settings came back');
+  perform t.ok(not exists (select 1 from mneme.vault_meta where user_id = c), 'no vault in the copy');
+
+  -- the copy keeps working: the next note gets a fresh id past the imported ones
+  perform t.login(c);
+  insert into mneme.notes (content) values ('after import');
+  perform t.ok((select count(*) from mneme.notes where user_id = c and content = 'after import') = 1
+               and (select count(distinct public_id) = count(*) from mneme.notes where user_id = c), 'new notes after an import get unused ids');
+  perform t.logout();
+
+  execute 'set local role service_role';
+  perform t.ok((select count(*) from mneme.backups_due() where user_id = a) <= 1, 'backups_due runs for the service role');
+  perform mneme.mark_backup_sent(array[a]);
+  perform t.ok(not exists (select 1 from mneme.backups_due() where user_id = a), 'a sent backup isn''t due again today');
+  execute 'reset role';
+end $$;
+
 rollback;
 \echo ALL TESTS PASSED

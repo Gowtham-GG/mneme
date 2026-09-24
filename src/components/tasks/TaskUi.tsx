@@ -1,13 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addSequence, addSubtask, addTaskLink, createCanvas, deleteSequence, deleteTask, deleteTaskLink, getTaskTree,
-  listCanvases, moveUnder, pickableTasks, renameSequence, renameTask, reorderTask, setTaskDone, setTaskOnCanvas, setTaskState, updateTask,
+  listCanvases, moveUnder, pickableTasks, renameSequence, renameTask, reorderTask, setTaskDone, setTaskOnCanvas, setTaskState, snoozeTask,
+  taskMentions, updateTask,
 } from '@/api/tasks'
 import { ruleMessage } from '@/api/errors'
 import { ConfirmDialog, Dialog } from '@/components/Dialog'
+import { DueDialog } from '@/components/DueDialog'
 import { useDebounced } from '@/hooks/useDebounced'
+import { useSettings } from '@/contexts/SettingsContext'
+import { addDays, formatDueDate, todayKey } from '@/lib/dates'
 import { useToast } from '@/contexts/ToastContext'
 import { descendantIds, nudgeOrder, STATES } from '@/lib/taskTree'
 import { PRIORITIES } from './pickers'
@@ -72,6 +76,11 @@ function useActions(confirm: (r: ConfirmReq) => void) {
     reorder: (t: TaskItem, sortOrder: number) => run(() => reorderTask(t.id, sortOrder), 'Couldn’t move the task.'),
     link: (fromId: string, toId: string, kind: 'blocks' | 'related') => run(() => addTaskLink(fromId, toId, kind), 'Couldn’t link the tasks.'),
     unlink: (linkId: string) => run(() => deleteTaskLink(linkId), 'Couldn’t remove the link.'),
+    snooze: (t: TaskItem, until: string | null) =>
+      run(() => snoozeTask(t.id, until), 'Couldn’t snooze the task.', until ? `Snoozed until ${until}` : 'Back in your lists'),
+    copyLink: async (t: TaskItem) => {
+      try { await navigator.clipboard.writeText(`[[${t.code}]]`); toast(`Copied [[${t.code}]] — paste it into a note`) } catch { toast(`Link: [[${t.code}]]`) }
+    },
     canvas: (taskId: string, canvasId: string, on: boolean) => run(() => setTaskOnCanvas(taskId, canvasId, on), 'Couldn’t update the canvas.'),
     createCanvas: async (name: string) => {
       try { const c = await createCanvas(name); refresh(); return c } catch (e) { toast(ruleMessage(e, 'Couldn’t create the canvas — is the name taken?'), { kind: 'error' }); return null }
@@ -87,6 +96,7 @@ interface TaskUiApi {
   pick: (r: PickReq) => void
   openCanvases: (t: TaskItem) => void
   openTree: (rootId: string, highlightId?: string) => void
+  openSnooze: (t: TaskItem) => void
   canvasNames: (taskId: string) => string[]
 }
 
@@ -106,6 +116,7 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
   const [canvasFor, setCanvasFor] = useState<TaskItem | null>(null)
   const [treeReq, setTreeReq] = useState<{ rootId: string; highlightId?: string } | null>(null)
   const [confirmReq, setConfirmReq] = useState<ConfirmReq | null>(null)
+  const [snoozeFor, setSnoozeFor] = useState<TaskItem | null>(null)
   const act = useActions(setConfirmReq)
   const canvases = useQuery({ queryKey: ['canvases'], queryFn: listCanvases, staleTime: 30_000 })
 
@@ -117,6 +128,7 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
       pick: setPicker,
       openCanvases: setCanvasFor,
       openTree: (rootId, highlightId) => setTreeReq({ rootId, highlightId }),
+      openSnooze: setSnoozeFor,
       canvasNames: (taskId) => (canvases.data?.membership ?? []).filter((m) => m.task_id === taskId).map((m) => byId.get(m.canvas_id) ?? '').filter(Boolean),
     }
   }, [act, canvases.data])
@@ -128,6 +140,7 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
       <MenuDialog req={menu} onClose={() => setMenu(null)} />
       <PickerDialog req={picker} onClose={() => setPicker(null)} />
       <CanvasDialog task={canvasFor} onClose={() => setCanvasFor(null)} />
+      <SnoozeDialog task={snoozeFor} onClose={() => setSnoozeFor(null)} />
       <ConfirmDialog open={!!confirmReq} title={confirmReq?.title ?? ''} body={confirmReq?.body ?? ''} danger
         confirmLabel={confirmReq?.confirmLabel ?? 'OK'} onClose={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onConfirm()} />
     </Ctx.Provider>
@@ -196,6 +209,10 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
           onPick: (p) => void ui.act.link(t.id, p.id, 'related'),
         }))}>Related…</button>
         {!t.parent_id && <button className={item} onClick={then(() => ui.openCanvases(t))}>Canvases…</button>}
+        {t.snoozed
+          ? <button className={item} onClick={then(() => void ui.act.snooze(t, null))}>Wake up</button>
+          : <button className={item} onClick={then(() => ui.openSnooze(t))}>Snooze…</button>}
+        <button className={item} onClick={then(() => void ui.act.copyLink(t))}>Copy link</button>
         <button className={item} onClick={then(() => ui.openTree(t.root_id, t.id))}>Whole task</button>
         {t.note_public_id && <button className={item} onClick={then(() => navigate(`/n/${t.note_public_id}`))}>Open note</button>}
       </div>
@@ -279,11 +296,66 @@ function TreeDialog({ req, onClose }: { req: { rootId: string; highlightId?: str
     <Dialog open={!!req} onClose={onClose} title={root?.title ?? 'Task'} wide>
       <div className="-mx-3 max-h-[75vh] overflow-y-auto">
         {root ? (
-          <HighlightContext.Provider value={req?.highlightId ?? null}>
-            <ul><TaskNode t={root} tree={tree.data} /></ul>
-          </HighlightContext.Provider>
+          <>
+            <HighlightContext.Provider value={req?.highlightId ?? null}>
+              <ul><TaskNode t={root} tree={tree.data} /></ul>
+            </HighlightContext.Provider>
+            <div className="px-3"><TaskMentions taskId={req?.highlightId ?? root.id} /></div>
+          </>
         ) : tree.isSuccess ? <p className="px-3 text-sm text-faint">This task is gone.</p> : <div className="skeleton mx-3 h-10" />}
       </div>
     </Dialog>
+  )
+}
+
+// ------------------------------------------------------------ snooze ------
+
+function SnoozeDialog({ task, onClose }: { task: TaskItem | null; onClose: () => void }) {
+  const ui = useTaskUi()
+  const { timezone: tz } = useSettings()
+  const [pick, setPick] = useState(false)
+  const today = todayKey(tz)
+  const dow = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7 // Monday = 0
+  const options: [string, string][] = [
+    ['Tomorrow', addDays(today, 1)],
+    ['This weekend', addDays(today, dow >= 5 ? 7 - dow + 5 : 5 - dow)],
+    ['Next week', addDays(today, 7 - dow)],
+  ]
+  const go = (d: string | null) => { if (task && d) void ui.act.snooze(task, d); onClose() }
+  return (
+    <>
+      <Dialog open={!!task && !pick} onClose={onClose} title="Snooze">
+        <h2 className="mb-1 text-base font-semibold">Snooze</h2>
+        <p className="mb-4 line-clamp-1 text-sm text-faint">{task?.title} — out of your lists until then.</p>
+        <div className="grid gap-1">
+          {options.map(([label, d]) => (
+            <button key={label} className="flex justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover" onClick={() => go(d)}>
+              <span>{label}</span><span className="text-faint">{formatDueDate(d, tz)}</span>
+            </button>
+          ))}
+          <button className="rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover" onClick={() => setPick(true)}>Pick a day…</button>
+        </div>
+      </Dialog>
+      <DueDialog open={!!task && pick} dateOnly title="Snooze until" date={addDays(today, 1)} time={null} tz={tz}
+        onClose={() => { setPick(false); onClose() }} onOk={(d) => { setPick(false); go(d) }} />
+    </>
+  )
+}
+
+// ------------------------------------------------------------ mentions -----
+
+/** Notes that link to the task with [[T-…]]. */
+export function TaskMentions({ taskId }: { taskId: string }) {
+  const q = useQuery({ queryKey: ['tasks', 'mentions', taskId], queryFn: () => taskMentions(taskId) })
+  if (!q.data?.length) return null
+  return (
+    <div className="mt-2 border-t border-line pt-2 text-xs">
+      <span className="text-faint">Mentioned in </span>
+      {q.data.map((n, i) => (
+        <span key={n.id}>{i > 0 && <span className="text-faint"> · </span>}
+          <Link to={`/n/${n.public_id}`} className="text-accent no-underline hover:underline">{n.title || n.public_id}</Link>
+        </span>
+      ))}
+    </div>
   )
 }

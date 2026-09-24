@@ -1,9 +1,10 @@
-import { DuePicker } from '@/components/tasks/pickers'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { relatedNotes } from '@/api/tags'
-import { formatLongDate } from '@/lib/dates'
+import { tasksByCodes } from '@/api/tasks'
+import { DuePicker } from '@/components/tasks/pickers'
+import { formatDueDate, formatLongDate } from '@/lib/dates'
 import { displayTitle } from '@/lib/text'
 import type { LinkedNote, NoteContext, TaskPriority } from '@/types/db'
 import { IconPlus, IconX } from './icons'
@@ -22,6 +23,8 @@ interface Props {
   onToggleTask: (line: number, done: boolean) => void
   onUpdateTask: (taskId: string, patch: { due_date?: string | null; due_time?: string | null; priority?: TaskPriority | null }) => void
   disabled?: boolean
+  /** the note's text, for the tasks it links to with [[T-…]] */
+  content?: string
 }
 
 function Section({ title, children, empty }: { title: string; children: React.ReactNode; empty?: string }) {
@@ -50,7 +53,9 @@ function LinkList({ items, arrow }: { items: LinkedNote[]; arrow: string }) {
   )
 }
 
-export function ContextPanel({ ctx, tz, noteId, publicId, createdAt, updatedAt, paperRef, onPaperRef, onAddTag, onRemoveTag, onToggleTask, onUpdateTask, disabled }: Props) {
+export function ContextPanel({ ctx, tz, noteId, publicId, createdAt, updatedAt, paperRef, onPaperRef, onAddTag, onRemoveTag, onToggleTask, onUpdateTask, disabled, content }: Props) {
+  const codes = [...new Set([...(content ?? '').matchAll(/\[\[\s*(T-[0-9a-f]{8})\s*(?:\||\]\])/gi)].map((m) => m[1].toUpperCase()))].sort()
+  const linked = useQuery({ queryKey: ['tasks', 'by-code', codes.join(',')], queryFn: () => tasksByCodes(codes), enabled: codes.length > 0 })
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
   const submit = () => { const v = draft.trim(); if (v) onAddTag(v); setDraft(''); setAdding(false) }
@@ -86,6 +91,19 @@ export function ContextPanel({ ctx, tz, noteId, publicId, createdAt, updatedAt, 
       <Section title="Links to"><LinkList items={ctx?.links_to ?? []} arrow="→" /></Section>
       <Section title="Referenced by"><LinkList items={ctx?.linked_from ?? []} arrow="←" /></Section>
 
+      {!!linked.data?.length && (
+        <Section title="Linked tasks">
+          <ul className="space-y-1">
+            {linked.data.map((t) => (
+              <li key={t.id} className="flex items-baseline gap-2 text-sm">
+                <span className={`size-2 shrink-0 translate-y-[-1px] rounded-full ${t.state === 'done' ? 'bg-task' : t.state === 'cancelled' ? 'bg-faint' : t.blocked ? 'bg-line' : 'bg-accent'}`} aria-hidden />
+                <Link to={`/tasks?task=${t.code}`} className={`min-w-0 truncate no-underline hover:underline ${t.state === 'done' || t.state === 'cancelled' ? 'text-faint line-through' : 'text-ink'}`}>{t.title}</Link>
+                {t.due_date && <span className="shrink-0 text-xs text-faint">{formatDueDate(t.due_date, tz)}</span>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       <Section title="Tasks">
         {(ctx?.tasks ?? []).length ? (
           <ul className="space-y-2">

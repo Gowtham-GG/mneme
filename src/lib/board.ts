@@ -185,3 +185,31 @@ export function fitView(b: { x: number; y: number; w: number; h: number } | null
   const y = want < minK && b.h * k > vh - pad * 2 ? pad - b.y * k : Math.max(pad, (vh - b.h * k) / 2) - b.y * k
   return { x, y, k }
 }
+
+export interface Progress {
+  done: number
+  total: number
+  left: number
+  /** Days from today to the task's due date (negative = past), when it has one. */
+  daysLeft: number | null
+  /** overdue: past due with steps left · tight: more steps left than days (at ~one a day) */
+  pace: 'overdue' | 'tight' | 'ok' | null
+}
+
+const dayNum = (key: string) => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10))) / 864e5
+
+/** How far along a task is, counted in its smallest steps (the tasks under it with nothing under them). */
+export function progressOf(data: TaskTree, id: string, today: string): Progress | null {
+  const kids = new Map<string, TaskItem[]>()
+  for (const t of data.tasks) if (t.parent_id) kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t])
+  const leaves: TaskItem[] = []
+  const walk = (p: string) => { for (const k of kids.get(p) ?? []) (kids.has(k.id) ? walk(k.id) : leaves.push(k)) }
+  walk(id)
+  if (!leaves.length) return null
+  const done = leaves.filter((t) => t.state === 'done' || t.state === 'cancelled').length
+  const left = leaves.length - done
+  const due = data.tasks.find((t) => t.id === id)?.due_date
+  const daysLeft = due ? dayNum(due) - dayNum(today) : null
+  const pace = daysLeft === null || left === 0 ? null : daysLeft < 0 ? 'overdue' : left > daysLeft + 1 ? 'tight' : 'ok'
+  return { done, total: leaves.length, left, daysLeft, pace }
+}

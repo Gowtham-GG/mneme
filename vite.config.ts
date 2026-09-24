@@ -37,6 +37,8 @@ export default defineConfig({
         // App shell only. API traffic is never cached: notes must always be fresh.
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
+        // device notifications (push-sw.js lives in public/)
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

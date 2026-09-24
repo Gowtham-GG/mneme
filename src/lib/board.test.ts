@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoLayout, boardEdges, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, GAP_X, GAP_Y, PORTAL_W, portalPositions, type BoardData } from './board'
+import { autoLayout, boardEdges, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, GAP_X, GAP_Y, PORTAL_W, portalPositions, progressOf, type BoardData } from './board'
 import type { TaskItem } from '@/types/db'
 
 const task = (id: string, over: Partial<TaskItem> = {}): TaskItem => ({
@@ -7,7 +7,7 @@ const task = (id: string, over: Partial<TaskItem> = {}): TaskItem => ({
   due_date: null, due_time: null, position: 0, created_at: '2026-01-01', completed_at: null,
   note_public_id: null, note_title: null, state: 'open', parent_id: null, sequence_id: null,
   sort_order: 0, blocked: false, child_count: 0, child_resolved: 0, updated_at: '2026-01-01',
-  root_id: 'r', parent_title: null, code: 'T-00000000', ...over,
+  root_id: 'r', parent_title: null, code: 'T-00000000', snoozed_until: null, snoozed: false, ...over,
 })
 
 // r ─ seq s1: a → b ;  loose: c ;  x (another main task) blocks b ;  b links to an outside task
@@ -91,5 +91,22 @@ describe('geometry', () => {
     expect(big.k).toBe(0.3) // never smaller than readable…
     expect(big.x).toBe(32) // …and then it starts at the left edge
     expect(fitView({ x: 0, y: 0, w: 2000, h: 500 }, 390, 700, 0.6).k).toBe(0.6) // phones keep a readable zoom
+  })
+})
+
+describe('progressOf', () => {
+  const tree = (over: Record<string, Partial<TaskItem>>): BoardData => ({ ...data, tasks: data.tasks.map((t) => ({ ...t, ...over[t.id] })) })
+  it('counts the smallest steps under a task', () => {
+    const p = progressOf(tree({ a: { state: 'done' } }), 'r', '2026-09-25')!
+    expect([p.done, p.total, p.left]).toEqual([1, 3, 2]) // a, b, c are leaves
+    expect(progressOf(data, 'c', '2026-09-25')).toBeNull() // nothing under it
+  })
+  it('flags a deadline that is tight or already past', () => {
+    expect(progressOf(tree({ r: { due_date: '2026-09-26' } }), 'r', '2026-09-25')!.pace).toBe('tight') // 3 steps, 2 days
+    expect(progressOf(tree({ r: { due_date: '2026-09-27' } }), 'r', '2026-09-25')!.pace).toBe('ok')    // 3 steps, 3 days
+    expect(progressOf(tree({ r: { due_date: '2026-09-25' } }), 'r', '2026-09-25')!.pace).toBe('tight')
+    expect(progressOf(tree({ r: { due_date: '2026-10-10' } }), 'r', '2026-09-25')!.pace).toBe('ok')
+    expect(progressOf(tree({ r: { due_date: '2026-09-20' } }), 'r', '2026-09-25')!.pace).toBe('overdue')
+    expect(progressOf(tree({ r: { due_date: '2026-09-20' }, a: { state: 'done' }, b: { state: 'done' }, c: { state: 'cancelled' } }), 'r', '2026-09-25')!.pace).toBeNull()
   })
 })

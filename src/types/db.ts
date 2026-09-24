@@ -92,6 +92,9 @@ export interface TaskItem {
   parent_title: string | null
   /** "T-1A2B3C4D" — what a [[T-…]] link in a note uses. */
   code: string
+  snoozed_until: string | null
+  /** Hidden from the lists until snoozed_until. */
+  snoozed: boolean
 }
 
 export interface TaskSequence {
@@ -158,7 +161,7 @@ export interface HabitDay {
   streak: number
 }
 
-export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed'
+export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed' | 'snoozed'
 
 export interface LinkedNote {
   link_id: string
@@ -214,4 +217,7 @@ export interface Settings {
   reminder_lead_minutes: number
   reminder_morning_time: string
   show_streaks: boolean
+  backup_enabled: boolean
+  /** ISO weekday, 1 = Monday … 7 = Sunday */
+  backup_weekday: number
 }
