@@ -13,9 +13,9 @@ import {
 import { formatDueDate, taskDueStatus, todayKey } from '@/lib/dates'
 import { childrenOf, descendantIds, isResolved, STATES } from '@/lib/taskTree'
 import { TaskNode } from './TaskNode'
-import { TaskMentions, useTaskUi } from './TaskUi'
+import { ActionGroup, TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
-import { IconCheck, IconLock, IconPlus, IconX } from '@/components/icons'
+import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconTree, IconX } from '@/components/icons'
 
 type View = { x: number; y: number; k: number }
 type Gesture =
@@ -45,6 +45,16 @@ const EDGE: Record<EdgeKind, { stroke: string; dash?: string; width: number; mar
   step: { stroke: 'var(--accent)', width: 2, marker: 'url(#arr-step)' },
   blocks: { stroke: 'var(--important)', dash: '6 4', width: 1.75, marker: 'url(#arr-blocks)' },
   related: { stroke: 'var(--faint)', dash: '2 4', width: 1.5 },
+}
+/** A short sample of how an arrow kind looks on the board. */
+function EdgeSample({ kind }: { kind: EdgeKind }) {
+  const st = EDGE[kind]
+  return (
+    <svg width="40" height="10" className="overflow-visible">
+      <line x1="1" y1="5" x2={st.marker ? 32 : 39} y2="5" style={{ stroke: st.stroke }} strokeWidth={st.width} strokeDasharray={st.dash} />
+      {st.marker && <path d="M32 1.5 39 5 32 8.5z" style={{ fill: st.stroke }} />}
+    </svg>
+  )
 }
 const BORDER: Record<TaskItem['state'], string> = {
   open: 'border-l-line', in_progress: 'border-l-accent', on_hold: 'border-l-important', done: 'border-l-task', cancelled: 'border-l-faint',
@@ -377,7 +387,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
 
       {connect && connect.at === null && (
         <div data-ui className="glass-strong absolute left-1/2 top-14 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-sm">
-          Tap a task to connect “{short(byId.get(connect.from)?.title ?? '')}”
+          <IconLink size={15} className="text-accent" />Now tap the task to connect “{short(byId.get(connect.from)?.title ?? '')}” with
           <button className="text-faint hover:text-ink" onClick={() => setConnect(null)}>Cancel</button>
         </div>
       )}
@@ -398,30 +408,50 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           )}
           <div className="px-2"><TaskMentions taskId={selTask.id} /></div>
           <div className="flex justify-end gap-3 px-2 pb-1 pt-0.5 text-xs text-muted">
-            <button className="hover:text-accent" onClick={() => setConnect({ from: selTask.id, at: null })}>Connect…</button>
-            <button className="hover:text-accent" onClick={() => ui.openTree(selTask.root_id, selTask.id)}>Whole task</button>
-            <button className="hover:text-ink" onClick={() => setSel(null)}>Close</button>
+            <button className="flex items-center gap-1 hover:text-accent" title="Link it to another task on this board" onClick={() => setConnect({ from: selTask.id, at: null })}><IconLink size={14} />Connect…</button>
+            <button className="flex items-center gap-1 hover:text-accent" title="See the full tree it belongs to" onClick={() => ui.openTree(selTask.root_id, selTask.id)}><IconTree size={14} />Whole task</button>
+            <button className="flex items-center gap-1 hover:text-ink" onClick={() => setSel(null)}><IconX size={14} />Close</button>
           </div>
         </div>
       )}
 
-      <Dialog open={!!ask} onClose={() => setAsk(null)} title="Connect">
-        {ask && (
-          <>
-            <h2 className="mb-3 text-base font-semibold">Connect</h2>
-            <div className="grid gap-1">
-              {[
-                [`“${short(ask.b.title)}” is a subtask of “${short(ask.a.title)}”`, () => ui.act.moveUnder(ask.b, ask.a.id, null, `${short(ask.b.title)} is now a subtask`)],
-                [`“${short(ask.a.title)}” comes before “${short(ask.b.title)}”`, () => ui.act.link(ask.a.id, ask.b.id, 'blocks')],
-                [`“${short(ask.b.title)}” comes before “${short(ask.a.title)}”`, () => ui.act.link(ask.b.id, ask.a.id, 'blocks')],
-                ['Related', () => ui.act.link(ask.a.id, ask.b.id, 'related')],
-              ].map(([label, go]) => (
-                <button key={label as string} className="rounded-xl px-3 py-2.5 text-left text-sm hover:bg-hover"
-                  onClick={() => { setAsk(null); void (go as () => Promise<unknown>)() }}>{label as string}</button>
-              ))}
-            </div>
-          </>
-        )}
+      <Dialog open={!!ask} onClose={() => setAsk(null)} title="Connect two tasks" wide>
+        {ask && (() => {
+          const { a, b } = ask
+          const A = `“${short(a.title)}”`, B = `“${short(b.title)}”`
+          const go = (f: () => Promise<unknown>) => () => { setAsk(null); void f() }
+          // a task can't go under its own subtask
+          const bUnderA = b.parent_id === a.id ? 'It’s already there' : descendantIds(data, b.id).has(a.id) ? `Not possible — ${A} is inside ${B}` : null
+          const aUnderB = a.parent_id === b.id ? 'It’s already there' : descendantIds(data, a.id).has(b.id) ? `Not possible — ${B} is inside ${A}` : null
+          return (
+            <>
+              <h2 className="mb-3 text-lg font-semibold">Connect two tasks</h2>
+              <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
+                <span className="truncate rounded-xl bg-panel px-3 py-2 font-medium" title={a.title}>{a.title}</span>
+                <IconLink size={16} className="text-faint" />
+                <span className="truncate rounded-xl bg-panel px-3 py-2 font-medium" title={b.title}>{b.title}</span>
+              </div>
+              <div className="grid gap-2">
+                <ActionGroup title="Put one inside the other" acts={[
+                  { icon: IconMoveUnder, label: `${short(b.title)} goes under`, hint: bUnderA ?? `${B} becomes a subtask of ${A}`, disabled: !!bUnderA, aside: <EdgeSample kind="tree" />,
+                    onClick: go(() => ui.act.moveUnder(b, a.id, null, `${short(b.title)} is now a subtask`)) },
+                  { icon: IconMoveUnder, label: `${short(a.title)} goes under`, hint: aUnderB ?? `${A} becomes a subtask of ${B}`, disabled: !!aUnderB, aside: <EdgeSample kind="tree" />,
+                    onClick: go(() => ui.act.moveUnder(a, b.id, null, `${short(a.title)} is now a subtask`)) },
+                ]} />
+                <ActionGroup title="One must finish first" acts={[
+                  { icon: IconHourglass, label: `${short(a.title)} first`, hint: `${B} stays Blocked until ${A} is done`, aside: <EdgeSample kind="blocks" />,
+                    onClick: go(() => ui.act.link(a.id, b.id, 'blocks')) },
+                  { icon: IconHourglass, label: `${short(b.title)} first`, hint: `${A} stays Blocked until ${B} is done`, aside: <EdgeSample kind="blocks" />,
+                    onClick: go(() => ui.act.link(b.id, a.id, 'blocks')) },
+                ]} />
+                <ActionGroup title="Just a reference" cols={1} acts={[
+                  { icon: IconLink, label: 'Related', hint: 'A dotted line between them — doesn’t block or change either task', aside: <EdgeSample kind="related" />,
+                    onClick: go(() => ui.act.link(a.id, b.id, 'related')) },
+                ]} />
+              </div>
+            </>
+          )
+        })()}
       </Dialog>
     </div>
   )

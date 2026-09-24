@@ -153,9 +153,10 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
 // ------------------------------------------------------------------ menu --
 
 const chip = (on: boolean) => `rounded-full px-3 py-1.5 text-sm ${on ? 'bg-accent font-medium text-on-accent' : 'bg-panel hover:bg-hover'}`
-type Act = { icon: ComponentType<{ size?: number }>; label: string; hint: string; onClick: () => void; disabled?: boolean }
+/** One row of an action menu: tinted icon, label, one-line hint (and an optional preview on the right). */
+export type Act = { icon: ComponentType<{ size?: number }>; label: string; hint: string; onClick: () => void; disabled?: boolean; aside?: ReactNode }
 
-function ActionGroup({ title, acts, cols = 2 }: { title: string; acts: (Act | false | null | undefined)[]; cols?: 1 | 2 }) {
+export function ActionGroup({ title, acts, cols = 2 }: { title: string; acts: (Act | false | null | undefined)[]; cols?: 1 | 2 }) {
   const shown = acts.filter(Boolean) as Act[]
   if (!shown.length) return null
   return (
@@ -166,10 +167,11 @@ function ActionGroup({ title, acts, cols = 2 }: { title: string; acts: (Act | fa
           <button key={a.label} disabled={a.disabled} onClick={a.onClick}
             className="flex items-start gap-3 rounded-xl px-2.5 py-2 text-left hover:bg-hover disabled:opacity-40 disabled:hover:bg-transparent">
             <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent"><a.icon size={18} /></span>
-            <span className="min-w-0">
+            <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">{a.label}</span>
               <span className="block text-xs leading-snug text-muted">{a.hint}</span>
             </span>
+            {a.aside && <span className="shrink-0 self-center" aria-hidden>{a.aside}</span>}
           </button>
         ))}
       </div>
