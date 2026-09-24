@@ -91,13 +91,16 @@ describe('web push', () => {
   })
 })
 
+// the files as text, through Vite (no Node types in the app's tsconfig)
+const fnSources = import.meta.glob('../../supabase/functions/*/index.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const sharedSource = Object.values(import.meta.glob('../../supabase/functions/_shared/webpush.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>)[0]
+
 describe('the inlined copies in each Edge Function', () => {
-  it('match _shared/webpush.ts exactly (each function deploys as a single file)', async () => {
-    const { readFileSync } = await import('node:fs')
-    const root = new URL('../../supabase/functions/', import.meta.url)
-    const shared = readFileSync(new URL('_shared/webpush.ts', root), 'utf8').trimEnd()
+  it('match _shared/webpush.ts exactly (each function deploys as a single file)', () => {
+    const shared = sharedSource.trimEnd()
     for (const fn of ['task-reminders', 'push-test']) {
-      const src = readFileSync(new URL(`${fn}/index.ts`, root), 'utf8')
+      const src = fnSources[`../../supabase/functions/${fn}/index.ts`]
+      expect(src, `${fn}/index.ts is found`).toBeTypeOf('string')
       const m = /\/\/ ---- webpush: inlined copy[^\n]*\n([\s\S]*?)\n\/\/ ---- end webpush ----/.exec(src)
       expect(m, `${fn} has the inlined block`).not.toBeNull()
       expect(m![1], `${fn}'s copy`).toBe(shared)
