@@ -15,7 +15,7 @@ import { childrenOf, descendantIds, isResolved, STATES, type LinkEnd } from '@/l
 import { TaskNode } from './TaskNode'
 import { ActionGroup, LinkList, TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
-import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
+import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconPullIn, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
 
 type View = { x: number; y: number; k: number }
 type Gesture =
@@ -418,33 +418,34 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
         {portals.map((p) => portalAt.get(p.id) && <PortalBox key={p.id} p={p} at={portalAt.get(p.id)!} dim={!!chain && !chain.has(p.taskId)} onGo={goTo} />)}
       </div>
 
-      {/* tools */}
-      <div data-ui className="absolute left-2 top-2 flex flex-wrap items-center gap-1.5">
+      {/* tools: one bar, so the two groups can never overlap; phones get icon-only buttons (and pinch instead of −/+) */}
+      <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start justify-between gap-1.5">
+      <div data-ui className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-1.5">
         {adding ? (
           <form className="glass-strong flex items-center gap-1 rounded-full py-1 pl-3 pr-1" onSubmit={(e) => { e.preventDefault(); void addTask() }}>
             <input autoFocus value={draft} maxLength={500} onChange={(e) => setDraft(e.target.value)} placeholder="New task" aria-label="New task"
               onKeyDown={(e) => { if (e.key === 'Escape') setAdding(false) }} onBlur={() => { if (!draft.trim()) setAdding(false) }}
-              className="w-40 bg-transparent text-sm outline-none sm:w-56" />
+              className="w-36 bg-transparent text-sm outline-none sm:w-56" />
             <button disabled={!draft.trim()} className="rounded-full bg-accent px-3 py-1 text-sm font-medium text-on-accent disabled:opacity-50">Add</button>
           </form>
         ) : (
-          <button className={`${btn} flex items-center gap-1`} onClick={() => setAdding(true)}><IconPlus size={14} /> Task</button>
+          <button className={`${btn} flex items-center gap-1`} aria-label="New task" onClick={() => setAdding(true)}><IconPlus size={14} /> Task</button>
         )}
         {canvasId && (
-          <button className={btn} onClick={() => ui.pick({
+          <button className={`${btn} ${adding ? 'hidden sm:flex' : 'flex'} items-center gap-1`} aria-label="Add an existing task" title="Add an existing task" onClick={() => ui.pick({
             title: 'Add to this canvas', exclude: new Set(data.tasks.map((t) => t.id)), rootsOnly: true,
             onPick: (t) => void ui.act.canvas(t.id, canvasId, true),
-          })}>+ Existing</button>
+          })}><IconPullIn size={14} /><span className="hidden sm:inline">Existing</span></button>
         )}
-        <label className={`${btn} flex cursor-pointer items-center gap-1.5`}>
+        <label className={`${btn} ${adding ? 'hidden sm:flex' : 'flex'} cursor-pointer items-center gap-1.5`}>
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} className="size-3.5 accent-[var(--accent)]" /> Done
         </label>
       </div>
-      <div data-ui className="absolute right-2 top-2 flex items-center gap-1">
+      <div data-ui className={`pointer-events-auto shrink-0 items-center gap-1 ${adding ? 'hidden sm:flex' : 'flex'}`}>
         {data.tasks.length > 1 && (
-          <button className={`${btn} flex items-center gap-1`} title="Arrange everything neatly" onClick={() => void tidy()}><IconWand size={14} /> Tidy</button>
+          <button className={`${btn} flex items-center gap-1`} aria-label="Tidy" title="Arrange everything neatly" onClick={() => void tidy()}><IconWand size={14} /><span className="hidden sm:inline">Tidy</span></button>
         )}
-        <button className={btn} aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+        <button className={`${btn} hidden sm:block`} aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
         <label className="glass-strong hidden items-center gap-2 rounded-full px-3 py-1.5 sm:flex" title="Zoom">
           <input type="range" aria-label="Zoom" min={Math.log(MIN_K)} max={Math.log(MAX_K)} step={0.01} value={Math.log(view.k)}
             onChange={(e) => {
@@ -456,7 +457,8 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           <span className="w-9 text-right text-xs tabular-nums text-muted">{Math.round(view.k * 100)}%</span>
         </label>
         <button className={btn} aria-label="Fit everything" onClick={fit}>Fit</button>
-        <button className={btn} aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
+        <button className={`${btn} hidden sm:block`} aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
+      </div>
       </div>
 
       {connect && connect.at === null && (
