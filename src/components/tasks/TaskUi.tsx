@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addSequence, addSubtask, addTaskLink, createCanvas, deleteSequence, deleteTask, deleteTaskLink, getTaskTree,
   listCanvases, moveUnder, pickableTasks, renameSequence, renameTask, reorderTask, setTaskDone, setTaskOnCanvas, setTaskState, snoozeTask,
-  taskMentions, updateTask,
+  taskMentions, updateTask, updateTaskLink,
 } from '@/api/tasks'
 import { ruleMessage } from '@/api/errors'
 import { ConfirmDialog, Dialog } from '@/components/Dialog'
@@ -13,13 +13,13 @@ import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
 import { addDays, formatDueDate, todayKey } from '@/lib/dates'
 import { useToast } from '@/contexts/ToastContext'
-import { descendantIds, nudgeOrder, STATES } from '@/lib/taskTree'
+import { descendantIds, isResolved, linksOf, nudgeOrder, STATES, type LinkEnd } from '@/lib/taskTree'
 import { PRIORITIES } from './pickers'
 import { TaskNode, HighlightContext } from './TaskNode'
 import type { TaskItem, TaskPriority, TaskSequence, TaskState, TaskTree } from '@/types/db'
 import {
-  IconArrowDown, IconArrowUp, IconBoard, IconCopy, IconHourglass, IconLink, IconMoveUnder, IconNotes, IconPullIn,
-  IconSearch, IconSnooze, IconSteps, IconSubtask, IconTree, IconUnnest,
+  IconArrowDown, IconArrowUp, IconBoard, IconCopy, IconEdit, IconHourglass, IconLink, IconMoveUnder, IconNotes, IconPullIn,
+  IconSearch, IconSnooze, IconSteps, IconSubtask, IconSwap, IconTree, IconUnlink, IconUnnest,
 } from '@/components/icons'
 
 export function useTaskTree(rootId: string | undefined, enabled = true) {
@@ -78,7 +78,9 @@ function useActions(confirm: (r: ConfirmReq) => void) {
       run(() => moveUnder(t.id, parentId, sequenceId), 'Couldn’t move the task.', ok),
     reorder: (t: TaskItem, sortOrder: number) => run(() => reorderTask(t.id, sortOrder), 'Couldn’t move the task.'),
     link: (fromId: string, toId: string, kind: 'blocks' | 'related') => run(() => addTaskLink(fromId, toId, kind), 'Couldn’t link the tasks.'),
-    unlink: (linkId: string) => run(() => deleteTaskLink(linkId), 'Couldn’t remove the link.'),
+    unlink: (linkId: string) => run(() => deleteTaskLink(linkId), 'Couldn’t remove the link.', 'Link removed'),
+    relink: (linkId: string, fromId: string, toId: string, kind: 'blocks' | 'related') =>
+      run(() => updateTaskLink(linkId, fromId, toId, kind), 'Couldn’t change the link.', 'Link changed'),
     snooze: (t: TaskItem, until: string | null) =>
       run(() => snoozeTask(t.id, until), 'Couldn’t snooze the task.', until ? `Snoozed until ${until}` : 'Back in your lists'),
     copyLink: async (t: TaskItem) => {
@@ -179,11 +181,62 @@ export function ActionGroup({ title, acts, cols = 2 }: { title: string; acts: (A
   )
 }
 
+type LinkRole = 'waits' | 'first' | 'related'
+const roleOf = (e: LinkEnd, selfId: string): LinkRole => (e.link.kind === 'related' ? 'related' : e.link.to_task_id === selfId ? 'waits' : 'first')
+const ROLE_TEXT: Record<LinkRole, string> = { waits: 'Waits for', first: 'Before', related: 'Related to' }
+
+/**
+ * A task's links, each editable in place: flip which one goes first, switch between
+ * "must finish first" and "related", point it at a different task, or remove it.
+ */
+export function LinkList({ t, ends, onDone }: { t: TaskItem; ends: LinkEnd[]; onDone?: () => void }) {
+  const ui = useTaskUi()
+  if (!ends.length) return null
+  const then = (f: () => void) => () => { onDone?.(); f() }
+  const btn = 'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted hover:bg-hover hover:text-ink'
+  return (
+    <section className="rounded-2xl bg-panel/60 p-1.5">
+      <h3 className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Links</h3>
+      <ul className="grid gap-0.5">
+        {ends.map((e) => {
+          const role = roleOf(e, t.id)
+          const { id, from_task_id: from, to_task_id: to, kind } = e.link
+          const Icon = kind === 'blocks' ? IconHourglass : IconLink
+          return (
+            <li key={id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-2.5 py-1.5">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent"><Icon size={18} /></span>
+              <span className="min-w-0 flex-1 text-sm">
+                <span className="text-muted">{ROLE_TEXT[role]} </span>
+                <button className={`font-medium hover:text-accent ${isResolved(e.state) ? 'line-through' : ''}`} onClick={then(() => ui.openTree(e.rootId, e.id))}>{e.title}</button>
+              </span>
+              <span className="flex flex-wrap gap-0.5">
+                {kind === 'blocks' && <button className={btn} title="Swap which one must finish first" onClick={then(() => void ui.act.relink(id, to, from, 'blocks'))}><IconSwap size={14} />Flip</button>}
+                {kind === 'blocks'
+                  ? <button className={btn} title="Keep the line, stop blocking" onClick={then(() => void ui.act.relink(id, from, to, 'related'))}><IconLink size={14} />Related</button>
+                  : <button className={btn} title={`“${t.title}” waits for it`} onClick={then(() => void ui.act.relink(id, e.id, t.id, 'blocks'))}><IconHourglass size={14} />Wait</button>}
+                <button className={btn} title="Link to a different task instead" onClick={then(() => ui.pick({
+                  title: `${ROLE_TEXT[role]}… (instead of “${e.title}”)`, exclude: new Set([t.id, e.id]),
+                  onPick: (p) => void ui.act.relink(id, from === t.id ? t.id : p.id, from === t.id ? p.id : t.id, kind),
+                }))}><IconEdit size={14} />Change…</button>
+                <button className={`${btn} hover:!text-danger`} onClick={then(() => void ui.act.unlink(id))}><IconUnlink size={14} />Remove</button>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void }) {
   const ui = useTaskUi()
   const navigate = useNavigate()
+  // rows in flat lists don't carry their tree — fetch it so the links show here
+  const own = useTaskTree(req?.t.root_id, !!req && !req.tree)
   if (!req) return <Dialog open={false} onClose={onClose} title="Task"><span /></Dialog>
-  const { t, tree, siblings, parentSeqs } = req
+  const { t, siblings, parentSeqs } = req
+  const tree = req.tree ?? own.data
+  const links = linksOf(tree, t.id)
   const then = (f: () => void) => () => { onClose(); f() }
   // a note arranges its own tasks' order; moves (which rewrite the note) work for every task
   const reorderable = t.source === 'standalone'
@@ -224,6 +277,7 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
           })) : []),
           !!t.sequence_id && !!t.parent_id && { icon: IconUnnest, label: 'Out of sequence', hint: 'Keep it as a loose subtask, no order', onClick: then(() => void ui.act.moveUnder(t, t.parent_id, null)) },
         ]} />
+        <LinkList t={t} ends={[...links.after, ...links.before, ...links.related]} onDone={onClose} />
         <ActionGroup title="Connect & move" acts={[
           { icon: IconHourglass, label: 'Waits for…', hint: 'Pick a task that must finish first — this stays Blocked until then', onClick: then(() => ui.pick({
             title: `“${t.title}” waits for…`, exclude: new Set([t.id]),

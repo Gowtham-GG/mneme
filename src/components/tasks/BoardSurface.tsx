@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { savePositions } from '@/api/board'
 import { createTask, setTaskOnCanvas } from '@/api/tasks'
@@ -8,24 +8,25 @@ import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import {
   boardEdges, boundsOf, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, portalPositions,
-  PORTAL_H, PORTAL_W, progressOf, type BoardData, type EdgeKind, type Portal, type Progress, type Pt,
+  PORTAL_H, PORTAL_W, progressOf, tidyLayout, type BoardData, type EdgeKind, type Portal, type Progress, type Pt,
 } from '@/lib/board'
 import { formatDueDate, taskDueStatus, todayKey } from '@/lib/dates'
-import { childrenOf, descendantIds, isResolved, STATES } from '@/lib/taskTree'
+import { childrenOf, descendantIds, isResolved, STATES, type LinkEnd } from '@/lib/taskTree'
 import { TaskNode } from './TaskNode'
-import { ActionGroup, TaskMentions, useTaskUi } from './TaskUi'
+import { ActionGroup, LinkList, TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
-import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconTree, IconX } from '@/components/icons'
+import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
 
 type View = { x: number; y: number; k: number }
 type Gesture =
   | { mode: 'none' }
-  | { mode: 'pan'; sx: number; sy: number; view0: View; moved: boolean }
+  | { mode: 'pan'; sx: number; sy: number; view0: View; moved: boolean; edge?: string }
   | { mode: 'drag'; id: string; sx: number; sy: number; start: Record<string, Pt>; moved: boolean }
   | { mode: 'connect'; from: string; sx: number; sy: number; moved: boolean }
   | { mode: 'pinch'; d0: number; mid0: Pt; view0: View }
 
-const clampK = (k: number) => Math.min(2, Math.max(0.3, k))
+const MIN_K = 0.3, MAX_K = 2
+const clampK = (k: number) => Math.min(MAX_K, Math.max(MIN_K, k))
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
 const mid = (a: Pt, b: Pt) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 /**
@@ -38,6 +39,8 @@ function swallowNextClick() {
   document.addEventListener('click', h, true)
   setTimeout(off, 500)
 }
+/** Half-size of the arrow layer: arrows anywhere within it can be tapped. */
+const HIT = 50_000
 const short = (s: string) => (s.length > 40 ? `${s.slice(0, 39)}…` : s)
 
 const EDGE: Record<EdgeKind, { stroke: string; dash?: string; width: number; marker?: string }> = {
@@ -133,7 +136,34 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
   const navigate = useNavigate()
   const { toast } = useToast()
   const ref = useRef<HTMLDivElement>(null)
-  const [view, setView] = useState<View>({ x: 32, y: 32, k: 1 })
+  const [view, setViewNow] = useState<View>({ x: 32, y: 32, k: 1 })
+  const viewRef = useRef(view)
+  useLayoutEffect(() => { viewRef.current = view }, [view])
+  // smooth zoom: glide toward a target scale, keeping the world point under the pointer still
+  const glide = useRef<{ k: number; mx: number; my: number; wx: number; wy: number; raf: number } | null>(null)
+  const stopGlide = () => { if (glide.current) cancelAnimationFrame(glide.current.raf); glide.current = null }
+  useEffect(() => stopGlide, [])
+  /** Any direct move (pan, fit, pinch) cancels a zoom that's still gliding. */
+  const setView: typeof setViewNow = (v) => { stopGlide(); setViewNow(v) }
+  const zoomTo = (k: number, mx: number, my: number) => {
+    const v = viewRef.current, tk = clampK(k)
+    if (glide.current) cancelAnimationFrame(glide.current.raf)
+    const wx = (mx - v.x) / v.k, wy = (my - v.y) / v.k
+    const g = { k: tk, mx, my, wx, wy, raf: 0 }
+    glide.current = g
+    const step = () => {
+      const cur = viewRef.current
+      const nk = Math.abs(g.k - cur.k) < 0.002 ? g.k : cur.k + (g.k - cur.k) * 0.28
+      const next = { k: nk, x: g.mx - g.wx * nk, y: g.my - g.wy * nk }
+      viewRef.current = next
+      setViewNow(next)
+      if (nk !== g.k) g.raf = requestAnimationFrame(step)
+      else glide.current = null
+    }
+    g.raf = requestAnimationFrame(step)
+  }
+  /** Where the zoom is heading, so quick wheel notches add up instead of restarting. */
+  const targetK = () => glide.current?.k ?? viewRef.current.k
   const [over, setOver] = useState<Record<string, Pt>>({})
   const [sel, setSel] = useState<string | null>(null)
   // at = the rubber band's end while dragging; null = waiting for a tap on the other task
@@ -188,12 +218,11 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
       if ((e.target as HTMLElement).closest('[data-card]')) return
       e.preventDefault()
       const r = el.getBoundingClientRect()
-      setView((v) => {
-        if (!e.ctrlKey && !e.metaKey) return { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }
-        const k = clampK(v.k * Math.exp(-e.deltaY * 0.01))
-        const mx = e.clientX - r.left, my = e.clientY - r.top
-        return { k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k }
-      })
+      if (!e.ctrlKey && !e.metaKey) { setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY })); return }
+      // a mouse notch is ~100px (or 3 lines): cap it so one notch is a gentle step; trackpad pinches stay 1:1
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+      const d = Math.max(-40, Math.min(40, dy))
+      zoomTo(targetK() * Math.exp(-d * 0.006), e.clientX - r.left, e.clientY - r.top)
     }
     el.addEventListener('wheel', h, { passive: false })
     return () => el.removeEventListener('wheel', h)
@@ -208,7 +237,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
   const toWorld = (cx: number, cy: number): Pt => { const r = rect(); return { x: (cx - r.left - view.x) / view.k, y: (cy - r.top - view.y) / view.k } }
   const zoomBy = (f: number) => {
     const r = rect()
-    setView((v) => { const k = clampK(v.k * f), mx = r.width / 2, my = r.height / 2; return { k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k } })
+    zoomTo(targetK() * f, r.width / 2, r.height / 2)
   }
 
   const tapBox = (id: string) => {
@@ -240,7 +269,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
       g.current = { mode: 'drag', id, sx: e.clientX, sy: e.clientY, start: Object.fromEntries(ids.map((i) => [i, drawn.get(i)!])), moved: false }
       return
     }
-    g.current = { mode: 'pan', sx: e.clientX, sy: e.clientY, view0: view, moved: false }
+    g.current = { mode: 'pan', sx: e.clientX, sy: e.clientY, view0: view, moved: false, edge: el.closest<SVGElement>('[data-edge]')?.dataset.edge }
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -278,13 +307,22 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
       const spots = Object.entries(s.start).map(([task_id, p]) => ({ task_id, x: p.x + dx, y: p.y + dy }))
       savePositions(board, spots).then(ui.act.refresh, () => { setOver({}); toast('Couldn’t save the layout.', { kind: 'error' }) })
     } else if (s.mode === 'pan') {
-      if (!s.moved) { if (connect) setConnect(null); else setSel(null) }
+      if (s.moved) return
+      if (connect) setConnect(null)
+      else if (s.edge) tapEdge(s.edge)
+      else setSel(null)
     } else if (s.mode === 'connect') {
       if (!s.moved) { setSel(null); setConnect({ from: s.from, at: null }); return }
       setConnect(null)
       const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-box]')
       if (hit && hit.dataset.box !== s.from) setAsk({ a: byId.get(s.from)!, b: byId.get(hit.dataset.box!)! })
     }
+  }
+  // tapping an arrow opens the Connect dialog for its two tasks, showing how they're linked now
+  const tapEdge = (id: string) => {
+    const e = edges.find((x) => x.id === id)
+    const a = e && byId.get(e.from), b = e && byId.get(e.to)
+    if (a && b) { setSel(null); setAsk({ a, b }) }
   }
   const onPointerCancel = (e: React.PointerEvent) => {
     pts.current.delete(e.pointerId)
@@ -309,6 +347,20 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
     } catch (err) { toast(ruleMessage(err, 'Couldn’t add the task.'), { kind: 'error' }) }
   }
 
+  const tidy = async () => {
+    const r = rect()
+    const next = tidyLayout(data, r.width / Math.max(r.height, 1), new Set(portals.map((p) => p.taskId)))
+    const prev = [...drawn].map(([task_id, p]) => ({ task_id, ...p }))
+    const spots = [...next].map(([task_id, p]) => ({ task_id, ...p }))
+    setOver(Object.fromEntries(next))
+    setView(fitView(boundsOf(next.values()), r.width, r.height, r.width < 640 ? 0.6 : 0.3))
+    try {
+      await savePositions(board, spots)
+      ui.act.refresh()
+      toast('Board tidied.', { action: { label: 'Undo', onClick: () => void savePositions(board, prev).then(ui.act.refresh) } })
+    } catch { setOver({}); toast('Couldn’t save the layout.', { kind: 'error' }) }
+  }
+
   const goTo = (cid: string | null, taskId: string) => navigate(`/tasks/board?canvas=${cid ?? 'inbox'}&focus=${taskId}`)
   const siblingsOf = (t: TaskItem) => {
     if (!t.parent_id) return {}
@@ -322,7 +374,8 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
     <div ref={ref} className="relative h-full w-full touch-none select-none overflow-hidden"
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
       <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
-        <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1" aria-hidden>
+        <svg className="pointer-events-none absolute overflow-visible" style={{ left: -HIT, top: -HIT }} width={HIT * 2} height={HIT * 2} aria-hidden>
+          <g transform={`translate(${HIT} ${HIT})`}>
           <defs>
             <marker id="arr-step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0 0L10 5L0 10z" style={{ fill: 'var(--accent)' }} />
@@ -335,8 +388,15 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
             const a = drawn.get(e.from), b = drawn.get(e.to)
             if (!a || !b) return null
             const st = EDGE[e.kind]
-            return <path key={e.id} d={edgePath(a, BOX_W, BOX_H, b, BOX_W, BOX_H)} fill="none" style={{ stroke: st.stroke }} strokeWidth={st.width}
-              strokeDasharray={st.dash} markerEnd={st.marker} opacity={lit(e.from, e.to) ? 1 : 0.12} />
+            const d = edgePath(a, BOX_W, BOX_H, b, BOX_W, BOX_H)
+            return (
+              <g key={e.id} className="group/edge">
+                <path d={d} fill="none" style={{ stroke: st.stroke }} strokeWidth={st.width} strokeDasharray={st.dash} markerEnd={st.marker} opacity={lit(e.from, e.to) ? 1 : 0.12}
+                  className="group-hover/edge:[stroke-width:3]" />
+                {/* wide invisible stroke: easy to tap */}
+                <path d={d} data-edge={e.id} fill="none" stroke="transparent" strokeWidth={16} className="cursor-pointer" style={{ pointerEvents: 'stroke' }} />
+              </g>
+            )
           })}
           {portals.map((p) => {
             const a = drawn.get(p.taskId), b = portalAt.get(p.id)
@@ -349,6 +409,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
             <path d={`M ${drawn.get(connect.from)!.x + BOX_W} ${drawn.get(connect.from)!.y + BOX_H / 2} L ${connect.at.x} ${connect.at.y}`}
               style={{ stroke: 'var(--accent)' }} strokeWidth={2} strokeDasharray="4 4" />
           )}
+          </g>
         </svg>
         {data.tasks.map((t) => (
           <BoardBox key={t.id} t={t} at={drawn.get(t.id)!} dim={!!chain && !chain.has(t.id)} selected={sel === t.id} connecting={connect?.from === t.id}
@@ -380,7 +441,20 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
         </label>
       </div>
       <div data-ui className="absolute right-2 top-2 flex items-center gap-1">
+        {data.tasks.length > 1 && (
+          <button className={`${btn} flex items-center gap-1`} title="Arrange everything neatly" onClick={() => void tidy()}><IconWand size={14} /> Tidy</button>
+        )}
         <button className={btn} aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+        <label className="glass-strong hidden items-center gap-2 rounded-full px-3 py-1.5 sm:flex" title="Zoom">
+          <input type="range" aria-label="Zoom" min={Math.log(MIN_K)} max={Math.log(MAX_K)} step={0.01} value={Math.log(view.k)}
+            onChange={(e) => {
+              // instant (no glide), so the handle stays under the finger
+              const r = rect(), k = clampK(Math.exp(Number(e.target.value))), mx = r.width / 2, my = r.height / 2
+              setView((v) => ({ k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k }))
+            }}
+            className="w-28 accent-[var(--accent)]" />
+          <span className="w-9 text-right text-xs tabular-nums text-muted">{Math.round(view.k * 100)}%</span>
+        </label>
         <button className={btn} aria-label="Fit everything" onClick={fit}>Fit</button>
         <button className={btn} aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
       </div>
@@ -421,17 +495,35 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           const A = `“${short(a.title)}”`, B = `“${short(b.title)}”`
           const go = (f: () => Promise<unknown>) => () => { setAsk(null); void f() }
           // a task can't go under its own subtask
+          // what already joins them: choosing a new kind of link replaces it rather than adding a second
+          const existing = data.links.filter((l) => (l.from_task_id === a.id && l.to_task_id === b.id) || (l.from_task_id === b.id && l.to_task_id === a.id))
+          const setLink = (from: TaskItem, to: TaskItem, kind: 'blocks' | 'related') => {
+            const same = existing.find((l) => l.from_task_id === from.id && l.to_task_id === to.id && l.kind === kind)
+            if (same) return Promise.resolve()
+            return existing[0] ? ui.act.relink(existing[0].id, from.id, to.id, kind) : ui.act.link(from.id, to.id, kind)
+          }
+          const isLink = (from: TaskItem, kind: 'blocks' | 'related') => existing.some((l) => l.kind === kind && (kind === 'related' || l.from_task_id === from.id))
+          const child = b.parent_id === a.id ? b : a.parent_id === b.id ? a : null
+          const stepPair = a.sequence_id && a.sequence_id === b.sequence_id ? (a.sort_order > b.sort_order ? a : b) : null
+          const ends: LinkEnd[] = existing.map((l) => ({ link: l, id: b.id, title: b.title, state: b.state, rootId: b.root_id }))
           const bUnderA = b.parent_id === a.id ? 'It’s already there' : descendantIds(data, b.id).has(a.id) ? `Not possible — ${A} is inside ${B}` : null
           const aUnderB = a.parent_id === b.id ? 'It’s already there' : descendantIds(data, a.id).has(b.id) ? `Not possible — ${B} is inside ${A}` : null
           return (
             <>
-              <h2 className="mb-3 text-lg font-semibold">Connect two tasks</h2>
+              <h2 className="mb-3 text-lg font-semibold">{existing.length || child || stepPair ? 'Connection' : 'Connect two tasks'}</h2>
               <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
                 <span className="truncate rounded-xl bg-panel px-3 py-2 font-medium" title={a.title}>{a.title}</span>
                 <IconLink size={16} className="text-faint" />
                 <span className="truncate rounded-xl bg-panel px-3 py-2 font-medium" title={b.title}>{b.title}</span>
               </div>
               <div className="grid gap-2">
+                <LinkList t={a} ends={ends} onDone={() => setAsk(null)} />
+                <ActionGroup title="Joined now" cols={1} acts={[
+                  !!child && { icon: IconUnnest, label: `Detach ${short(child.title)}`, hint: 'Make it a main task again', aside: <EdgeSample kind="tree" />,
+                    onClick: go(() => ui.act.moveUnder(child, null, null, 'Now a main task')) },
+                  !!stepPair && !!stepPair.parent_id && { icon: IconUnnest, label: `Take ${short(stepPair.title)} out of the sequence`, hint: 'It stays a subtask, with no order', aside: <EdgeSample kind="step" />,
+                    onClick: go(() => ui.act.moveUnder(stepPair, stepPair.parent_id, null)) },
+                ]} />
                 <ActionGroup title="Put one inside the other" acts={[
                   { icon: IconMoveUnder, label: `${short(b.title)} goes under`, hint: bUnderA ?? `${B} becomes a subtask of ${A}`, disabled: !!bUnderA, aside: <EdgeSample kind="tree" />,
                     onClick: go(() => ui.act.moveUnder(b, a.id, null, `${short(b.title)} is now a subtask`)) },
@@ -440,13 +532,13 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
                 ]} />
                 <ActionGroup title="One must finish first" acts={[
                   { icon: IconHourglass, label: `${short(a.title)} first`, hint: `${B} stays Blocked until ${A} is done`, aside: <EdgeSample kind="blocks" />,
-                    onClick: go(() => ui.act.link(a.id, b.id, 'blocks')) },
+                    disabled: isLink(a, 'blocks'), onClick: go(() => setLink(a, b, 'blocks')) },
                   { icon: IconHourglass, label: `${short(b.title)} first`, hint: `${A} stays Blocked until ${B} is done`, aside: <EdgeSample kind="blocks" />,
-                    onClick: go(() => ui.act.link(b.id, a.id, 'blocks')) },
+                    disabled: isLink(b, 'blocks'), onClick: go(() => setLink(b, a, 'blocks')) },
                 ]} />
                 <ActionGroup title="Just a reference" cols={1} acts={[
                   { icon: IconLink, label: 'Related', hint: 'A dotted line between them — doesn’t block or change either task', aside: <EdgeSample kind="related" />,
-                    onClick: go(() => ui.act.link(a.id, b.id, 'related')) },
+                    disabled: isLink(a, 'related'), onClick: go(() => setLink(a, b, 'related')) },
                 ]} />
               </div>
             </>

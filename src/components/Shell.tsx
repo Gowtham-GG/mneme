@@ -12,7 +12,8 @@ import { useOnline } from '@/hooks/useOnline'
 import { Brand } from './Brand'
 import { CommandPalette } from './CommandPalette'
 import { Dialog } from './Dialog'
-import { IconArchive, IconHabit, IconInbox, IconKey, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
+import { IconArchive, IconCompass, IconHabit, IconInbox, IconKey, IconMore, IconNotes, IconPlus, IconSearch, IconSettings, IconStar, IconTag, IconTasks, IconToday, IconTrash } from './icons'
+import { openTour, Tour } from './Tour'
 import { SyncManager } from './SyncManager'
 
 function SignOutIcon() {
@@ -130,6 +131,9 @@ export function Shell() {
                 <button role="menuitem" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-ink hover:bg-hover" onClick={() => setHelp(true)}>
                   <span className="w-[18px] text-center text-muted">?</span>Keyboard shortcuts
                 </button>
+                <button role="menuitem" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-ink hover:bg-hover" onClick={openTour}>
+                  <span className="text-muted"><IconCompass size={18} /></span>Tour
+                </button>
               </div>
             </>
           )}
@@ -147,6 +151,7 @@ export function Shell() {
       </Dialog>
 
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      <Tour />
       <SyncManager />
     </div>
   )

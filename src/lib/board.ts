@@ -213,3 +213,99 @@ export function progressOf(data: TaskTree, id: string, today: string): Progress 
   const pace = daysLeft === null || left === 0 ? null : daysLeft < 0 ? 'overdue' : left > daysLeft + 1 ? 'tight' : 'ok'
   return { done, total: leaves.length, left, daysLeft, pace }
 }
+
+/**
+ * Where a main task sits in a tidy board: open work first (things that must happen first
+ * ahead of what waits on them), then by due date, in progress before open; finished last.
+ */
+function tidyRank(t: TaskItem): [number, string, number] {
+  const resolved = t.state === 'done' || t.state === 'cancelled'
+  const lane = resolved ? 3 : t.state === 'on_hold' ? 2 : t.state === 'in_progress' ? 0 : 1
+  return [resolved ? 2 : t.due_date ? 0 : 1, `${t.due_date ?? ''} ${t.due_time ?? ''}`, lane]
+}
+const cmpRank = (a: TaskItem, b: TaskItem) => {
+  const [x, y] = [tidyRank(a), tidyRank(b)]
+  return x[0] - y[0] || x[1].localeCompare(y[1]) || x[2] - y[2] || byOrder(a, b)
+}
+
+/**
+ * The Tidy button: every task gets a fresh spot. Each main task's tree is drawn as a block
+ * (subtasks one column right, sequences in order, loose ones by urgency), and the blocks
+ * flow top-to-bottom into columns sized to roughly match the viewport's shape (`aspect` = w/h).
+ */
+export function tidyLayout(data: TaskTree, aspect = 16 / 9, withPortals: Set<string> = new Set()): Map<string, Pt> {
+  const ids = new Set(data.tasks.map((t) => t.id))
+  // group top-level sequence runs, then order the groups
+  const groups: TaskItem[][] = []
+  const seen = new Set<string>()
+  const roots = orderedRoots(data)
+  for (const r of roots) {
+    if (seen.has(r.id)) continue
+    const run = r.sequence_id ? roots.filter((x) => x.sequence_id === r.sequence_id) : [r]
+    run.forEach((x) => seen.add(x.id))
+    groups.push(run)
+  }
+  const lead = (g: TaskItem[]) => [...g].sort(cmpRank)[0]
+  groups.sort((a, b) => cmpRank(lead(a), lead(b)))
+  // "must happen first" between main tasks: keep the first one earlier (stable topological pass)
+  const groupOf = new Map<string, number>()
+  const rootOf = (id: string) => { let t = data.tasks.find((x) => x.id === id); while (t?.parent_id && ids.has(t.parent_id)) t = data.tasks.find((x) => x.id === t!.parent_id); return t?.id }
+  groups.forEach((g, i) => g.forEach((t) => groupOf.set(t.id, i)))
+  const before = new Map<number, Set<number>>()
+  for (const l of data.links) {
+    if (l.kind !== 'blocks' || !ids.has(l.from_task_id) || !ids.has(l.to_task_id)) continue
+    const a = groupOf.get(rootOf(l.from_task_id)!), b = groupOf.get(rootOf(l.to_task_id)!)
+    if (a === undefined || b === undefined || a === b) continue
+    before.set(b, (before.get(b) ?? new Set()).add(a))
+  }
+  const order: number[] = [], placed = new Set<number>()
+  while (order.length < groups.length) {
+    const ready = groups.findIndex((_, i) => !placed.has(i) && [...(before.get(i) ?? [])].every((p) => placed.has(p)))
+    const next = ready >= 0 ? ready : groups.findIndex((_, i) => !placed.has(i)) // a cycle: just take the next
+    order.push(next); placed.add(next)
+  }
+
+  // lay out each group as a block at the origin
+  type Block = { pos: Map<string, Pt>; w: number; h: number }
+  const blocks: Block[] = order.map((gi) => {
+    const pos = new Map<string, Pt>()
+    let w = 0
+    const place = (t: TaskItem, depth: number, y0: number): number => {
+      pos.set(t.id, { x: depth * (BOX_W + GAP_X), y: y0 })
+      w = Math.max(w, depth * (BOX_W + GAP_X) + BOX_W + (withPortals.has(t.id) ? PORTAL_W + 28 : 0))
+      const { sequences, loose } = childrenOf(data, t.id)
+      const kids = [...sequences.flatMap((s) => s.steps), ...[...loose].sort(cmpRank)]
+      let y = y0
+      for (const k of kids) if (!pos.has(k.id)) y = place(k, depth + 1, y)
+      return Math.max(y, y0 + BOX_H + GAP_Y)
+    }
+    let y = 0
+    for (const t of groups[gi]) y = place(t, 0, y)
+    return { pos, w, h: y - GAP_Y }
+  })
+
+  // flow the blocks into columns: pick the column height whose overall shape is closest to `aspect`
+  const GAP_BLOCK = GAP_Y * 2, GAP_COL = GAP_X * 1.5
+  const flow = (maxH: number) => {
+    const at: Pt[] = []
+    let x = 0, y = 0, colW = 0, H = 0
+    for (const b of blocks) {
+      if (y > 0 && y + b.h > maxH) { x += colW + GAP_COL; y = 0; colW = 0 }
+      at.push({ x, y })
+      y += b.h + GAP_BLOCK; colW = Math.max(colW, b.w); H = Math.max(H, y - GAP_BLOCK)
+    }
+    return { at, W: x + colW, H }
+  }
+  const tallest = Math.max(0, ...blocks.map((b) => b.h))
+  const total = blocks.reduce((s, b) => s + b.h + GAP_BLOCK, 0)
+  let best = flow(total)
+  for (let i = 1; i <= 24; i++) {
+    const maxH = tallest + ((total - tallest) * i) / 24
+    const f = flow(maxH)
+    const off = (r: { W: number; H: number }) => Math.abs(Math.log((r.W / Math.max(r.H, 1)) / aspect))
+    if (off(f) < off(best)) best = f
+  }
+  const out = new Map<string, Pt>()
+  blocks.forEach((b, i) => { for (const [id, p] of b.pos) out.set(id, { x: best.at[i].x + p.x, y: best.at[i].y + p.y }) })
+  return out
+}

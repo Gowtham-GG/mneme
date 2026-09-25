@@ -160,6 +160,12 @@ export async function addTaskLink(fromId: string, toId: string, kind: 'blocks' |
   if (error) throw toError(error)
 }
 
+/** Change a link in place — its direction or kind — so it's never briefly missing. */
+export async function updateTaskLink(id: string, fromId: string, toId: string, kind: 'blocks' | 'related'): Promise<void> {
+  const { error } = await supabase.from('task_links').update({ from_task_id: fromId, to_task_id: toId, kind }).eq('id', id)
+  if (error) throw toError(error)
+}
+
 export async function deleteTaskLink(id: string): Promise<void> {
   const { error } = await supabase.from('task_links').delete().eq('id', id)
   if (error) throw toError(error)
@@ -188,8 +194,12 @@ export async function listCanvases(): Promise<CanvasData> {
   return { canvases: (c.data as Canvas[]) ?? [], membership: (m.data as CanvasData['membership']) ?? [] }
 }
 
+/** A new canvas goes at the end of the tabs. */
 export async function createCanvas(name: string): Promise<Canvas> {
-  const { data, error } = await supabase.from('canvases').insert({ name: name.trim() }).select('id,name,sort_order').single()
+  const last = await supabase.from('canvases').select('sort_order').order('sort_order', { ascending: false }).limit(1)
+  if (last.error) throw toError(last.error)
+  const sortOrder = last.data?.length ? Number(last.data[0].sort_order) + 1 : 0
+  const { data, error } = await supabase.from('canvases').insert({ name: name.trim(), sort_order: sortOrder }).select('id,name,sort_order').single()
   if (error) throw toError(error)
   return data as Canvas
 }
@@ -204,6 +214,13 @@ export async function setTaskOnCanvas(taskId: string, canvasId: string, on: bool
 export async function renameCanvas(id: string, name: string): Promise<void> {
   const { error } = await supabase.from('canvases').update({ name: name.trim() }).eq('id', id)
   if (error) throw toError(error)
+}
+
+/** Saves the tab order: each canvas gets its position in `ids`. */
+export async function reorderCanvases(ids: string[]): Promise<void> {
+  const res = await Promise.all(ids.map((id, i) => supabase.from('canvases').update({ sort_order: i }).eq('id', id)))
+  const bad = res.find((r) => r.error)
+  if (bad?.error) throw toError(bad.error)
 }
 
 /** Its tasks stay; ones on no other canvas go back to the Inbox. */

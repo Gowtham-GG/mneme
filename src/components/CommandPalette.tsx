@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { openTour } from './Tour'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { searchNotes } from '@/api/search'
@@ -33,6 +34,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     { key: 'notes', label: 'All notes (timeline)', run: go('/notes') },
     { key: 'tasks', label: 'Tasks', run: go('/tasks') },
     { key: 'habits', label: 'Habits', run: go('/habits') },
+    { key: 'tour', label: 'Take the tour', hint: 'how Mneme works', run: () => { onClose(); openTour() } },
     { key: 'inbox', label: 'Inbox — captures to process', run: go('/inbox') },
     { key: 'search', label: 'Search', hint: '/', run: go('/search') },
     { key: 'passwords', label: 'Passwords (encrypted vault)', run: go('/passwords') },

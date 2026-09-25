@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoLayout, boardEdges, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, GAP_X, GAP_Y, PORTAL_W, portalPositions, progressOf, type BoardData } from './board'
+import { autoLayout, boardEdges, BOX_H, BOX_W, chainOf, drawnPositions, edgePath, fitView, GAP_X, GAP_Y, PORTAL_W, portalPositions, progressOf, tidyLayout, type BoardData } from './board'
 import type { TaskItem } from '@/types/db'
 
 const task = (id: string, over: Partial<TaskItem> = {}): TaskItem => ({
@@ -108,5 +108,40 @@ describe('progressOf', () => {
     expect(progressOf(tree({ r: { due_date: '2026-10-10' } }), 'r', '2026-09-25')!.pace).toBe('ok')
     expect(progressOf(tree({ r: { due_date: '2026-09-20' } }), 'r', '2026-09-25')!.pace).toBe('overdue')
     expect(progressOf(tree({ r: { due_date: '2026-09-20' }, a: { state: 'done' }, b: { state: 'done' }, c: { state: 'cancelled' } }), 'r', '2026-09-25')!.pace).toBeNull()
+  })
+})
+
+describe('tidyLayout', () => {
+  const t = (id: string, over: Partial<TaskItem> = {}) => task(id, { root_id: id, ...over })
+  const tree = (tasks: TaskItem[], links: BoardData['links'] = []): BoardData => ({ tasks, sequences: [], links, canvas_ids: [], positions: {} })
+
+  it('places every task, keeping subtasks one column right of their parent', () => {
+    const p = tidyLayout(data)
+    expect([...p.keys()].sort()).toEqual(['a', 'b', 'c', 'r', 'x'])
+    expect(p.get('a')!.x - p.get('r')!.x).toBe(BOX_W + GAP_X)
+    expect(p.get('b')!.y).toBeGreaterThan(p.get('a')!.y)
+  })
+
+  it('puts due-soon work first and finished work last', () => {
+    const p = tidyLayout(tree([t('done', { state: 'done' }), t('none'), t('late', { due_date: '2026-01-05' }), t('soon', { due_date: '2026-01-02' })]), 0.1)
+    const ys = ['soon', 'late', 'none', 'done'].map((id) => p.get(id)!.y)
+    expect(ys).toEqual([...ys].sort((a, b) => a - b))
+  })
+
+  it('keeps a task that must happen first ahead of the one waiting on it', () => {
+    const blocks = [{ id: 'l', kind: 'blocks' as const, from_task_id: 'b', to_task_id: 'a', other: { id: 'b', title: 'b', state: 'open' as const, root_id: 'b' } }]
+    const p = tidyLayout(tree([t('a', { due_date: '2026-01-01' }), t('b')], blocks), 0.1)
+    expect(p.get('b')!.y).toBeLessThan(p.get('a')!.y)
+  })
+
+  it('spreads many main tasks into columns on a wide screen, without overlaps', () => {
+    const many = tree(Array.from({ length: 12 }, (_, i) => t(`m${i}`)))
+    const p = tidyLayout(many, 16 / 9)
+    expect(new Set([...p.values()].map((q) => q.x)).size).toBeGreaterThan(1)
+    const r = [...p.values()]
+    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) {
+      const o = Math.abs(r[i].x - r[j].x) < BOX_W && Math.abs(r[i].y - r[j].y) < BOX_H
+      expect(o).toBe(false)
+    }
   })
 })

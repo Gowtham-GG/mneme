@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useToast } from '@/contexts/ToastContext'
 import { browserTimezone, isValidTimezone } from '@/lib/dates'
-import { THEMES, type ThemePref } from '@/lib/themes'
+import { ThemePicker } from '@/components/ThemePicker'
 import { IconFlame } from '@/components/icons'
 
 const zones = (): string[] => {
@@ -124,7 +124,7 @@ function Card({ title, children, id }: { title: string; children: React.ReactNod
 
 export function Settings() {
   const { user } = useAuth()
-  const { theme, timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, update } = useSettings()
+  const { timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, update } = useSettings()
   const { toast } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
@@ -144,7 +144,6 @@ export function Settings() {
     setBusy(name); setMsg('')
     try { const n = await fn(setMsg); toast(`Exported ${n} ${unit}`) } catch { toast('Export failed. Check your connection and try again.', { kind: 'error' }) } finally { setBusy(null); setMsg('') }
   }
-  const setTheme = (t: ThemePref) => void update({ theme: t }).catch(() => toast('Couldn’t save the theme.', { kind: 'error' }))
 
   return (
     <div className="h-full overflow-y-auto">
@@ -153,27 +152,7 @@ export function Settings() {
 
         <Card title="Appearance" id="appearance">
           <p className="mb-4 text-sm text-muted">Pick a colour theme. It follows you across devices.</p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Theme">
-            <button role="radio" aria-checked={theme === 'system'} onClick={() => setTheme('system')}
-              className={`group rounded-2xl border p-3 text-left ${theme === 'system' ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover'}`}>
-              <span className="mb-2.5 flex h-14 overflow-hidden rounded-xl border border-line">
-                <span className="flex-1" style={{ background: 'linear-gradient(135deg,#e3e8fb,#f5f7fd)' }} />
-                <span className="flex-1" style={{ background: 'linear-gradient(135deg,#2a1745,#120c1e)' }} />
-              </span>
-              <span className="block text-sm font-semibold">Match my device</span>
-              <span className="block text-xs text-muted">Light by day, dark by night</span>
-            </button>
-            {THEMES.map((t) => (
-              <button key={t.id} role="radio" aria-checked={theme === t.id} onClick={() => setTheme(t.id)}
-                className={`group rounded-2xl border p-3 text-left ${theme === t.id ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover'}`}>
-                <span className="mb-2.5 flex h-14 items-end justify-end overflow-hidden rounded-xl border border-line p-2" style={{ background: `radial-gradient(90px 60px at 15% 0%, ${t.swatch[1]}55, transparent 70%), ${t.swatch[0]}` }}>
-                  <span className="size-5 rounded-full shadow-lg" style={{ background: t.swatch[1], boxShadow: `0 4px 14px ${t.swatch[1]}88` }} />
-                </span>
-                <span className="block text-sm font-semibold">{t.label}</span>
-                <span className="block text-xs text-muted">{t.blurb}</span>
-              </button>
-            ))}
-          </div>
+          <ThemePicker />
         </Card>
 
         <Card title="Timezone">

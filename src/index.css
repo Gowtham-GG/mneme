@@ -26,9 +26,21 @@
 :root[data-theme='lilac']           { --h: 272; --h2: 318; --ha: 268; --sat: 46%; --asat: 70%; --al: 52%; --on: #fff; }
 :root[data-theme='sand']            { --h: 34;  --h2: 10;  --ha: 22;  --sat: 46%; --asat: 82%; --al: 44%; --on: #fff; }
 
+/* ---- shape knobs: the colour themes share these; platform themes override them ---- */
+:root {
+  --font-ui: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --r-md: 0.5rem; --r-lg: 0.625rem; --r-xl: 0.875rem; --r-2xl: 1.5rem; --r-3xl: 1.875rem;
+  --glass-filter: blur(16px) saturate(150%);
+  --glass-strong-filter: blur(20px) saturate(160%);
+  --heading-track: -0.02em;
+  /* the glossy top edge on filled accent buttons */
+  --accent-hi: rgba(255, 255, 255, 0.25);
+}
+
 /* ---- dark family -------------------------------------------------------- */
 :root, :root[data-theme='amethyst'], :root[data-theme='sapphire'], :root[data-theme='jade'],
-:root[data-theme='ember'], :root[data-theme='crimson'], :root[data-theme='graphite'] {
+:root[data-theme='ember'], :root[data-theme='crimson'], :root[data-theme='graphite'],
+:root[data-theme='fluent-dark'], :root[data-theme='cupertino-dark'], :root[data-theme='material-dark'] {
   color-scheme: dark;
   --bg: hsl(var(--h) var(--sat) 7%);
   --ambient:
@@ -69,7 +81,8 @@
 }
 
 /* ---- light family ------------------------------------------------------- */
-:root[data-theme='slate'], :root[data-theme='lilac'], :root[data-theme='sand'] {
+:root[data-theme='slate'], :root[data-theme='lilac'], :root[data-theme='sand'],
+:root[data-theme='fluent-light'], :root[data-theme='cupertino-light'], :root[data-theme='material-light'] {
   color-scheme: light;
   --bg: hsl(var(--h) var(--sat) 96%);
   --ambient:
@@ -108,6 +121,124 @@
   --shadow-2xl: 0 40px 90px -30px rgba(20, 28, 80, 0.5);
 }
 
+
+/* ---- platform themes ------------------------------------------------------
+   Full token sets (their colours are fixed brand palettes, not hue knobs) plus shape:
+   font, corner radii and how much the surfaces blur.
+   --------------------------------------------------------------------------- */
+
+/* Windows 11 — Fluent: Mica backdrop, Segoe UI Variable, small 4–8px corners, hairline strokes */
+:root[data-theme='fluent-light'], :root[data-theme='fluent-dark'] {
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --r-md: 4px; --r-lg: 4px; --r-xl: 6px; --r-2xl: 8px; --r-3xl: 8px;
+  --glass-filter: blur(30px) saturate(125%);
+  --glass-strong-filter: blur(60px) saturate(125%);
+  --heading-track: -0.01em;
+  --accent-hi: transparent;
+}
+:root[data-theme='fluent-light'] {
+  --bg: #f3f3f3;
+  --ambient: radial-gradient(1200px 800px at 0% 0%, rgba(0, 95, 184, 0.07), transparent 60%), linear-gradient(180deg, #f3f3f3, #eeeef0);
+  --glass: rgba(255, 255, 255, 0.7); --glass-strong: rgba(252, 252, 252, 0.85); --glass-clear: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(0, 0, 0, 0.06); --glass-hi: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 8px 16px -8px rgba(0, 0, 0, 0.1);
+  --sticky: rgba(243, 243, 243, 0.85);
+  --panel: rgba(0, 0, 0, 0.037); --raised: rgba(255, 255, 255, 0.7); --hover: rgba(0, 0, 0, 0.045);
+  --ink: #1a1a1a; --muted: #5c5c5c; --faint: #8a8a8a; --line: rgba(0, 0, 0, 0.08); --letter: #dbe9f7;
+  --accent: #005fb8; --accent-grad: linear-gradient(#005fb8, #005fb8); --accent-soft: rgba(0, 95, 184, 0.1); --accent-glow: transparent; --on-accent: #fff;
+  --task: #0f7b6c; --important: #9d5d00; --question: #005fb8; --danger: #c42b1c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06); --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.14); --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.19);
+}
+:root[data-theme='fluent-dark'] {
+  --bg: #202020;
+  --ambient: radial-gradient(1200px 800px at 0% 0%, rgba(96, 205, 255, 0.06), transparent 60%), linear-gradient(180deg, #202020, #1c1c1c);
+  --glass: rgba(255, 255, 255, 0.05); --glass-strong: rgba(44, 44, 44, 0.9); --glass-clear: rgba(44, 44, 44, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.07); --glass-hi: rgba(255, 255, 255, 0.04);
+  --glass-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 8px 16px -8px rgba(0, 0, 0, 0.4);
+  --sticky: rgba(32, 32, 32, 0.85);
+  --panel: rgba(255, 255, 255, 0.04); --raised: rgba(255, 255, 255, 0.06); --hover: rgba(255, 255, 255, 0.06);
+  --ink: #ffffff; --muted: rgba(255, 255, 255, 0.79); --faint: rgba(255, 255, 255, 0.54); --line: rgba(255, 255, 255, 0.08); --letter: #0d3350;
+  --accent: #60cdff; --accent-grad: linear-gradient(#60cdff, #60cdff); --accent-soft: rgba(96, 205, 255, 0.13); --accent-glow: transparent; --on-accent: #000;
+  --task: #6ccb5f; --important: #fce100; --question: #60cdff; --danger: #ff99a4;
+}
+
+/* iOS — Cupertino: SF Pro, grouped backgrounds, frosted materials, 10–16px corners, system colours */
+:root[data-theme='cupertino-light'], :root[data-theme='cupertino-dark'] {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+  --r-md: 8px; --r-lg: 10px; --r-xl: 12px; --r-2xl: 16px; --r-3xl: 22px;
+  --glass-filter: blur(20px) saturate(180%);
+  --glass-strong-filter: blur(30px) saturate(190%);
+  --heading-track: -0.025em;
+  --accent-hi: transparent;
+}
+:root[data-theme='cupertino-light'] {
+  --bg: #f2f2f7;
+  --ambient: linear-gradient(180deg, #f2f2f7, #f2f2f7);
+  --glass: #ffffff; --glass-strong: rgba(249, 249, 249, 0.8); --glass-clear: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(60, 60, 67, 0.1); --glass-hi: transparent;
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --sticky: rgba(242, 242, 247, 0.82);
+  --panel: rgba(118, 118, 128, 0.08); --raised: #ffffff; --hover: rgba(118, 118, 128, 0.1);
+  --ink: #000000; --muted: rgba(60, 60, 67, 0.72); --faint: rgba(60, 60, 67, 0.5); --line: rgba(60, 60, 67, 0.16); --letter: #d6e8ff;
+  --accent: #007aff; --accent-grad: linear-gradient(#007aff, #007aff); --accent-soft: rgba(0, 122, 255, 0.1); --accent-glow: transparent; --on-accent: #fff;
+  --task: #248a3d; --task-soft: rgba(52, 199, 89, 0.14); --important: #c93400; --important-soft: rgba(255, 149, 0, 0.14);
+  --question: #007aff; --danger: #d70015; --danger-soft: rgba(255, 59, 48, 0.1);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05); --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.14); --shadow-2xl: 0 30px 70px rgba(0, 0, 0, 0.22);
+}
+:root[data-theme='cupertino-dark'] {
+  --bg: #000000;
+  --ambient: linear-gradient(180deg, #000, #000);
+  --glass: #1c1c1e; --glass-strong: rgba(30, 30, 30, 0.8); --glass-clear: rgba(28, 28, 30, 0.75);
+  --glass-border: rgba(84, 84, 88, 0.35); --glass-hi: transparent;
+  --glass-shadow: 0 0 transparent;
+  --sticky: rgba(0, 0, 0, 0.8);
+  --panel: rgba(118, 118, 128, 0.2); --raised: #2c2c2e; --hover: rgba(118, 118, 128, 0.24);
+  --ink: #ffffff; --muted: rgba(235, 235, 245, 0.66); --faint: rgba(235, 235, 245, 0.42); --line: rgba(84, 84, 88, 0.55); --letter: #0a2a50;
+  --accent: #0a84ff; --accent-grad: linear-gradient(#0a84ff, #0a84ff); --accent-soft: rgba(10, 132, 255, 0.18); --accent-glow: transparent; --on-accent: #fff;
+  --task: #30d158; --task-soft: rgba(48, 209, 88, 0.16); --important: #ff9f0a; --important-soft: rgba(255, 159, 10, 0.16);
+  --question: #64d2ff; --danger: #ff453a; --danger-soft: rgba(255, 69, 58, 0.16);
+}
+
+/* Android — Material 3: Roboto, solid tonal surfaces (no blur), large 12–28px corners */
+:root[data-theme='material-light'], :root[data-theme='material-dark'] {
+  --font-ui: 'Roboto Variable', Roboto, 'Google Sans', system-ui, sans-serif;
+  --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-2xl: 24px; --r-3xl: 28px;
+  --glass-filter: none;
+  --glass-strong-filter: none;
+  --heading-track: 0;
+  --accent-hi: transparent;
+}
+:root[data-theme='material-light'] {
+  --bg: #fef7ff;
+  --ambient: linear-gradient(180deg, #fef7ff, #fef7ff);
+  --glass: #f3edf7; --glass-strong: #ece6f0; --glass-clear: #f3edf7;
+  --glass-border: transparent; --glass-hi: transparent; --glass-shadow: 0 0 transparent;
+  --sticky: #fef7ff;
+  --panel: #f7f2fa; --raised: #fef7ff; --hover: rgba(29, 27, 32, 0.08);
+  --ink: #1d1b20; --muted: #49454f; --faint: #79747e; --line: #cac4d0; --letter: #eaddff;
+  --accent: #6750a4; --accent-grad: linear-gradient(#6750a4, #6750a4); --accent-soft: #e8def8; --accent-glow: transparent; --on-accent: #fff;
+  --task: #006a60; --task-soft: #9ef2e4; --important: #7d5700; --important-soft: #ffdea6;
+  --question: #3a5ba9; --question-soft: #dae2ff; --danger: #b3261e; --danger-soft: #f9dedc;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1), 0 1px 3px 1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 2px 6px 2px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 4px 8px 3px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-2xl: 0 8px 12px 6px rgba(0, 0, 0, 0.1), 0 4px 4px rgba(0, 0, 0, 0.2);
+}
+:root[data-theme='material-dark'] {
+  --bg: #141218;
+  --ambient: linear-gradient(180deg, #141218, #141218);
+  --glass: #211f26; --glass-strong: #2b2930; --glass-clear: #211f26;
+  --glass-border: transparent; --glass-hi: transparent; --glass-shadow: 0 0 transparent;
+  --sticky: #141218;
+  --panel: #1d1b20; --raised: #141218; --hover: rgba(230, 224, 233, 0.08);
+  --ink: #e6e0e9; --muted: #cac4d0; --faint: #938f99; --line: #49454f; --letter: #4f378b;
+  --accent: #d0bcff; --accent-grad: linear-gradient(#d0bcff, #d0bcff); --accent-soft: #4a4458; --accent-glow: transparent; --on-accent: #381e72;
+  --task: #82d5c8; --task-soft: #005048; --important: #f5bd48; --important-soft: #5e4100;
+  --question: #b1c5ff; --question-soft: #22428f; --danger: #f2b8b5; --danger-soft: #8c1d18;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-panel: var(--panel);
@@ -128,14 +259,14 @@
   --color-question-soft: var(--question-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
-  --font-sans: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-serif: 'DM Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-ui);
+  --font-serif: var(--font-ui);
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.875rem;
-  --radius-2xl: 1.5rem;
-  --radius-3xl: 1.875rem;
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-3xl: var(--r-3xl);
   --shadow-sm: var(--shadow-sm);
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
@@ -158,7 +289,7 @@ body {
 body::before { content: ''; position: fixed; inset: 0; z-index: -1; background: var(--ambient); pointer-events: none; }
 
 @layer base {
-  h1, h2, h3 { letter-spacing: -0.02em; }
+  h1, h2, h3 { letter-spacing: var(--heading-track); }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
@@ -185,15 +316,15 @@ mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2
   /* The signature surface: translucent, lightly blurred, tint-bordered, lit from above. */
   .glass {
     background: var(--glass);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
   }
   .glass-strong {
     background: var(--glass-strong);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: var(--glass-strong-filter);
+    backdrop-filter: var(--glass-strong-filter);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
   }
@@ -211,7 +342,7 @@ mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2
   /* Every filled accent control gets the gradient + a soft coloured glow. */
   .bg-accent {
     background-image: var(--accent-grad);
-    box-shadow: 0 8px 22px -8px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: 0 8px 22px -8px var(--accent-glow), inset 0 1px 0 var(--accent-hi);
   }
   .bg-accent:hover:not(:disabled) { filter: brightness(1.08) saturate(1.05); }
   .bg-accent:disabled { box-shadow: none; }
@@ -219,7 +350,7 @@ mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2
   .field {
     background: var(--raised);
     border: 1px solid var(--line);
-    border-radius: 0.625rem;
+    border-radius: var(--r-lg);
     padding: 0.7rem 0.9rem;
     width: 100%;
     outline: none;

@@ -59,4 +59,8 @@ export const IconBoard = mk(<><rect x="3.5" y="4" width="17" height="16" rx="2.5
 export const IconSnooze = mk(<path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10zM14 4h4l-4 4.5h4" />)
 export const IconTree = mk(<><rect x="9" y="3" width="6" height="4.5" rx="1.2" /><rect x="3" y="16.5" width="6" height="4.5" rx="1.2" /><rect x="15" y="16.5" width="6" height="4.5" rx="1.2" /><path d="M12 7.5V12M6 16.5V12h12v4.5" /></>)
 export const IconFlame = mk(<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.1 2-5.2 3.6-7 .4 1.7 1.3 2.8 2.4 3.4C11.8 7.6 13 5 15 3c.3 2.6 1.5 4.4 2.6 6 .9 1.4 1.4 2.9 1.4 4.8 0 4.1-2.8 7.2-7 7.2z" />)
+export const IconSwap = mk(<path d="M7 4 4 7l3 3M4 7h13M17 20l3-3-3-3M20 17H7" />)
+export const IconUnlink = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /><path d="m4 4 16 16" /></>)
+export const IconCompass = mk(<><circle cx="12" cy="12" r="8.5" /><path d="m15.5 8.5-2 5-5 2 2-5z" /></>)
+export const IconPalette = mk(<><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.9 1.5-1.9-.3-1 .3-2.1 1.5-2.1h2a3.5 3.5 0 0 0 3.5-3.5c0-5.2-3.8-9.5-8.5-9.5z" /><circle cx="8" cy="11" r="1" fill="currentColor" /><circle cx="11.5" cy="7.5" r="1" fill="currentColor" /><circle cx="15.5" cy="9" r="1" fill="currentColor" /></>)
 export const IconFlag = mk(<path d="M5.5 21V4m0 0h11l-2 4 2 4h-11" />)

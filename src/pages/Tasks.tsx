@@ -90,7 +90,7 @@ export function Tasks() {
       <div className="page-top mx-auto max-w-3xl px-4 pb-32 lg:px-6 lg:pb-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-[28px] font-semibold leading-tight">Tasks</h1>
+            <h1 className="text-[28px] font-semibold leading-tight">Tasks<span className="text-accent">.</span></h1>
             <ViewToggle />
           </div>
           <label className="glass flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-xl px-3 py-2 sm:max-w-xs">

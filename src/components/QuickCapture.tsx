@@ -20,7 +20,7 @@ function Box({ onSaved }: { onSaved: (publicId: string) => void }) {
     if (pid) onSaved(pid)
   }
   return (
-    <div className="glass rounded-3xl px-5 pb-3.5 pt-4 transition-shadow focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--glass-shadow)]">
+    <div data-tour="capture" className="glass rounded-3xl px-5 pb-3.5 pt-4 transition-shadow focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--glass-shadow)]">
       <Editor value={ed.content} onChange={ed.setContent} onSaveAndClose={() => void done()} minRows={3} minHeight="min-h-28" showBar={false} placeholder="Write something…" autoFocus={typeof window !== 'undefined' && window.innerWidth >= 1024} />
       <div className="mt-1 flex items-center justify-between gap-3">
         <SaveStatus status={ed.status} error={ed.errorMsg} onRetry={ed.retryNow} />

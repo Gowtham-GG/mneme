@@ -32,7 +32,7 @@ export function HabitStrip({ day, today, tz }: { day: string; today: string; tz:
   }
 
   return (
-    <div className="mb-6 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+    <div data-tour="habits" className="mb-6 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
       <span className="label-caps shrink-0">{day === today ? 'Habits' : formatDueDate(day, tz)}</span>
       {due.map((h) => {
         const done = h.value >= h.target
