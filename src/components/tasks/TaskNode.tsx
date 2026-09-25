@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSettings } from '@/contexts/SettingsContext'
+import { useMedia } from '@/hooks/useMedia'
 import { childrenOf, isResolved, linksOf, STATES, type LinkEnd } from '@/lib/taskTree'
 import { formatDueDate } from '@/lib/dates'
 import { DuePicker, PriorityPicker } from './pickers'
@@ -96,6 +97,7 @@ interface NodeProps {
 export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafOnly }: NodeProps) {
   const ui = useTaskUi()
   const { timezone: tz } = useSettings()
+  const narrow = useMedia('(max-width: 639px)')
   const highlight = useContext(HighlightContext)
   const flat = !tree
   const [open, setOpen] = useState(!flat)
@@ -123,6 +125,15 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
     if (v && v !== t.title) void ui.act.rename(t, v)
   }
   const startAdd = (k: 'sub' | 'seq') => { setOpen(true); setAdding(k) }
+  // on a phone a date pill beside the title squeezes it to a word per line: it goes under the title instead
+  // (an empty date stays up top as a small calendar icon)
+  const pickersBelow = narrow && !resolved && (!!t.due_date || !!t.priority)
+  const pickers = !resolved && (
+    <>
+      {t.priority && <PriorityPicker priority={t.priority} onChange={(p) => void ui.act.priority(t, p)} />}
+      <DuePicker task={t} tz={tz} compact onChange={(d, time) => void ui.act.due(t, d, time)} />
+    </>
+  )
 
   return (
     <li ref={ref}>
@@ -145,8 +156,7 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
               <div className={`text-[15px] leading-snug ${resolved ? 'text-faint line-through' : t.blocked ? 'text-muted' : ''}`}>{t.title}</div>
             )}
           </div>
-          {!resolved && t.priority && <PriorityPicker priority={t.priority} onChange={(p) => void ui.act.priority(t, p)} />}
-          {!resolved && <DuePicker task={t} tz={tz} compact onChange={(d, time) => void ui.act.due(t, d, time)} />}
+          {!pickersBelow && pickers}
           {!editing && (
             <button aria-label={`Edit task: ${t.title}`} title={t.source === 'note' ? 'Edit (updates the line in its note)' : 'Edit'}
               className={`${ROW_ACTION} hover:text-ink`} onClick={() => { setDraft(t.title); setEditing(true) }}><IconEdit size={16} /></button>
@@ -158,6 +168,7 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
         </div>
         {/* full row width, aligned under the title */}
         <div className="mt-0.5 flex flex-wrap items-center gap-1 empty:hidden" style={{ paddingLeft: step === undefined ? 46 : 70 }}>
+          {pickersBelow && pickers}
           {flat && t.parent_title && (
             <button className="text-xs text-faint hover:text-accent" onClick={() => ui.openTree(t.root_id, t.id)}>↳ {t.parent_title}</button>
           )}
