@@ -1,14 +1,21 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { supabase } from '@/lib/supabase'
 import { ThemePicker } from './ThemePicker'
 import {
   IconBoard, IconCompass, IconHabit, IconInbox, IconLink, IconMore, IconPalette, IconPlus, IconSteps, IconTag, IconTasks, IconX,
 } from './icons'
 
 // A walk around the app: a small card that moves page to page and rings the part it talks about.
-// Opens once on a new device; again any time from More → Tour or the command palette.
+// Opens once per account; again any time from More → Tour or the command palette.
+// "Seen" lives on the account (auth user_metadata — no table needed) with a device copy for instant,
+// offline checks. The login is shared with Argus, hence the mneme_ prefix.
 
 const SEEN = 'mneme-tour-seen'
+const META = 'mneme_tour_seen'
+const seenHere = (uid: string) => { try { return !!localStorage.getItem(`${SEEN}:${uid}`) } catch { return false } }
+const markHere = (uid: string) => { try { localStorage.setItem(`${SEEN}:${uid}`, '1') } catch { /* private mode */ } }
+const markAccount = () => supabase.auth.updateUser({ data: { [META]: true } }).catch(() => { /* retried next visit */ })
 const OPEN_EVENT = 'mneme:tour'
 // eslint-disable-next-line react-refresh/only-export-components
 export const openTour = () => window.dispatchEvent(new Event(OPEN_EVENT))
@@ -175,16 +182,26 @@ function Spotlight({ selectors }: { selectors?: string[] }) {
 
 export function Tour() {
   const [step, setStep] = useState<number | null>(null)
+  const uid = useRef<string | null>(null)
   const nav = useNavigate()
   const loc = useLocation()
 
   useEffect(() => {
     const open = () => setStep(0)
     window.addEventListener(OPEN_EVENT, open)
-    let seen = true
-    try { seen = !!localStorage.getItem(SEEN) } catch { /* private mode: don't nag */ }
-    const t = seen ? 0 : window.setTimeout(open, 700)
-    return () => { window.removeEventListener(OPEN_EVENT, open); window.clearTimeout(t) }
+    let live = true, t = 0
+    void (async () => {
+      // the freshest copy of the account (the session's may predate a tour finished on another device)
+      const fresh = await supabase.auth.getUser().catch(() => null)
+      const user = fresh?.data.user ?? (await supabase.auth.getSession()).data.session?.user
+      if (!live || !user) return
+      uid.current = user.id
+      if (user.user_metadata?.[META]) { markHere(user.id); return }
+      // closed here while the account update couldn't be saved (offline): finish saving it
+      if (seenHere(user.id)) { void markAccount(); return }
+      t = window.setTimeout(open, 700)
+    })()
+    return () => { live = false; window.removeEventListener(OPEN_EVENT, open); window.clearTimeout(t) }
   }, [])
 
   const s = step === null ? null : STEPS[step]
@@ -192,7 +209,7 @@ export function Tour() {
   useEffect(() => { if (s && loc.pathname !== s.to) nav(s.to) }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!s || step === null) return null
-  const close = () => { try { localStorage.setItem(SEEN, '1') } catch { /* ignore */ } setStep(null) }
+  const close = () => { if (uid.current) markHere(uid.current); void markAccount(); setStep(null) }
   const last = step === STEPS.length - 1
 
   return (
