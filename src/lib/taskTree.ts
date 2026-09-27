@@ -79,3 +79,31 @@ export function descendantIds(tree: TaskTree | undefined, id: string): Set<strin
   walk(id)
   return out
 }
+
+const BOX: Record<TaskState, string> = { open: '[ ]', in_progress: '[~]', on_hold: '[ ]', done: '[x]', cancelled: '[-]' }
+
+/** One line's extras: "(in progress · high)" — a pasted copy should read on its own. */
+function extras(t: TaskItem): string {
+  const bits: string[] = []
+  if (t.state === 'in_progress' || t.state === 'on_hold' || t.state === 'cancelled') bits.push(STATES.find((s) => s.id === t.state)!.label.toLowerCase())
+  if (t.priority) bits.push(t.priority)
+  return bits.length ? ` (${bits.join(' · ')})` : ''
+}
+
+/**
+ * A task and everything under it as a plain-text checklist, for pasting anywhere:
+ * `- [ ]` / `- [x]` lines, sequences as numbered steps under their name.
+ */
+export function taskAsText(tree: TaskTree | undefined, t: TaskItem): string {
+  const lines = [`${t.title}${extras(t)}`]
+  const walk = (parentId: string, pad: string) => {
+    const { sequences, loose } = childrenOf(tree, parentId)
+    for (const { seq, steps } of sequences) {
+      lines.push(`${pad}${seq.title || 'Sequence'}:`)
+      steps.forEach((s, i) => { lines.push(`${pad}  ${i + 1}. ${BOX[s.state]} ${s.title}${extras(s)}`); walk(s.id, `${pad}     `) })
+    }
+    for (const k of loose) { lines.push(`${pad}- ${BOX[k.state]} ${k.title}${extras(k)}`); walk(k.id, `${pad}  `) }
+  }
+  walk(t.id, '')
+  return lines.join('\n')
+}

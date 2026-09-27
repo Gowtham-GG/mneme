@@ -1,5 +1,7 @@
-// Reminders, both opt-in per user — by email (settings.reminders_enabled) and/or
-// as a notification on every device that allowed them (mneme.push_subscriptions):
+// Reminders go out as a notification on every device that allowed them
+// (mneme.push_subscriptions). Email reminders (settings.reminders_enabled) are
+// switched OFF for now — the code stays; set MNEME_EMAIL_REMINDERS=on to bring
+// them back (and flip EMAIL_REMINDERS in src/pages/Settings.tsx to show the toggle).
 //   * Daily digest -- once a day at reminder_morning_time (user's timezone):
 //     every unfinished task that is overdue or due today, repeated every day
 //     until it is done, plus upcoming tasks for the next UPCOMING_DAYS days
@@ -149,6 +151,8 @@ const RESEND_FROM = Deno.env.get('MNEME_RESEND_FROM') ?? 'Mneme <onboarding@rese
 // overridable only so the function can be exercised against a local fake
 const RESEND_URL = Deno.env.get('MNEME_RESEND_URL') ?? 'https://api.resend.com/emails'
 const APP_URL = Deno.env.get('MNEME_APP_URL') ?? ''
+// reminder emails are off unless explicitly turned back on (the weekly backup email is separate and unaffected)
+const EMAIL_REMINDERS = Deno.env.get('MNEME_EMAIL_REMINDERS') === 'on'
 const VAPID: VapidKeys | null = Deno.env.get('MNEME_VAPID_PRIVATE_KEY') && Deno.env.get('MNEME_VAPID_PUBLIC_KEY')
   ? { publicKey: Deno.env.get('MNEME_VAPID_PUBLIC_KEY')!, privateKey: Deno.env.get('MNEME_VAPID_PRIVATE_KEY')!, subject: Deno.env.get('MNEME_VAPID_SUBJECT') ?? 'mailto:mneme@example.com' }
   : null
@@ -335,7 +339,7 @@ function groupDigests(rows: DigestRow[]): Digest[] {
   for (const r of rows) {
     let d = byUser.get(r.user_id)
     if (!d) {
-      d = { userId: r.user_id, email: r.email, sendEmail: r.send_email, localDate: r.local_date, overdue: [], today: [], upcoming: [] }
+      d = { userId: r.user_id, email: r.email, sendEmail: EMAIL_REMINDERS && r.send_email, localDate: r.local_date, overdue: [], today: [], upcoming: [] }
       byUser.set(r.user_id, d)
     }
     if (r.task_id && r.bucket) d[r.bucket].push(r)
@@ -404,7 +408,7 @@ Deno.serve(async (req) => {
   for (const [userId, tasks] of byUser) {
     let reached = false
     const email = tasks[0].email
-    if (tasks[0].send_email && email) {
+    if (EMAIL_REMINDERS && tasks[0].send_email && email) {
       try { await sendDueSoonEmail(email, tasks); reached = true; dueSoonSent++ } catch (err) { errors.push(err instanceof Error ? err.message : String(err)) }
     }
     if (await notify(devices, userId, dueSoonPush(tasks), errors)) { reached = true; pushesSent++ }

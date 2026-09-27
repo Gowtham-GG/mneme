@@ -18,10 +18,14 @@ const zones = (): string[] => {
   try { return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone') } catch { return ['UTC'] }
 }
 
+/** Reminder emails are switched off for now — notifications carry reminders. Kept, not removed (see task-reminders). */
+const EMAIL_REMINDERS = false
+
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 /** This device's notifications: on/off, blocked, or unsupported — and a test. */
 function NotificationsCard() {
+  const { reminderLeadMinutes, reminderMorningTime, update } = useSettings()
   const { toast } = useToast()
   const [on, setOn] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
@@ -39,14 +43,14 @@ function NotificationsCard() {
     catch { toast('Couldn’t send a test.', { kind: 'error' }) } finally { setBusy(false) }
   }
   return (
-    <Card title="Notifications">
+    <Card title="Reminders">
       {!supported ? (
         <p className="text-sm text-muted">This browser can’t show notifications. On iPhone, add Mneme to your Home Screen first, then open it from there.</p>
       ) : !pushConfigured ? (
         <p className="text-sm text-muted">Notifications aren’t set up on the server yet.</p>
       ) : (
         <>
-          <p className="mb-3 text-sm text-muted">Reminders pop up on this device — before timed tasks and with the morning summary — even when Mneme is closed.</p>
+          <p className="mb-3 text-sm text-muted">A morning summary of what’s due, and a heads-up before timed tasks — on this device, even when Mneme is closed.</p>
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2.5 text-sm">
               <input type="checkbox" checked={!!on} disabled={busy || on === null || (denied && !on)} onChange={(e) => void flip(e.target.checked)} className="size-4 accent-[var(--accent)]" />
@@ -55,6 +59,26 @@ function NotificationsCard() {
             {on && <button disabled={busy} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-hover" onClick={() => void test()}>Send a test</button>}
           </div>
           {denied && !on && <p className="mt-2 text-sm text-danger">Blocked for this site — allow notifications in your browser’s site settings.</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+            <label className="flex items-center gap-2">
+              Lead time for timed tasks
+              <select
+                value={reminderLeadMinutes}
+                onChange={(e) => void update({ reminder_lead_minutes: Number(e.target.value) }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+                className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
+              >
+                {[15, 30, 60, 120, 1440].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 1440 ? '1 day' : `${m / 60} hr`}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              Morning summary at
+              <input
+                type="time" value={reminderMorningTime.slice(0, 5)}
+                onChange={(e) => void update({ reminder_morning_time: e.target.value }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+                className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
+              />
+            </label>
+          </div>
         </>
       )}
     </Card>
@@ -124,7 +148,7 @@ function Card({ title, children, id }: { title: string; children: React.ReactNod
 
 export function Settings() {
   const { user } = useAuth()
-  const { timezone, remindersEnabled, reminderLeadMinutes, reminderMorningTime, showStreaks, update } = useSettings()
+  const { timezone, remindersEnabled, showStreaks, update } = useSettings()
   const { toast } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
@@ -166,45 +190,23 @@ export function Settings() {
           </div>
         </Card>
 
-        <Card title="Reminders">
-          <p className="mb-3 text-sm text-muted">
-            Get a daily email at your login address listing every unfinished overdue or due-today task (repeated each
-            day until it’s done) plus what’s coming up in the next 7 days. Tasks with a specific time also get a heads-up
-            email a bit beforehand. Off by default.
-          </p>
-          <label className="mb-3 flex items-center gap-2.5 text-sm">
-            <input
-              type="checkbox" checked={remindersEnabled}
-              onChange={(e) => void update({ reminders_enabled: e.target.checked }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
-              className="size-4 accent-[var(--accent)]"
-            />
-            Email me task reminders
-          </label>
-          {remindersEnabled && (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
-              <label className="flex items-center gap-2">
-                Lead time for timed tasks
-                <select
-                  value={reminderLeadMinutes}
-                  onChange={(e) => void update({ reminder_lead_minutes: Number(e.target.value) }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
-                  className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
-                >
-                  {[15, 30, 60, 120, 1440].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 1440 ? '1 day' : `${m / 60} hr`}</option>)}
-                </select>
-              </label>
-              <label className="flex items-center gap-2">
-                Daily email time
-                <input
-                  type="time" value={reminderMorningTime.slice(0, 5)}
-                  onChange={(e) => void update({ reminder_morning_time: e.target.value }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
-                  className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm"
-                />
-              </label>
-            </div>
-          )}
-        </Card>
-
         <NotificationsCard />
+
+        {EMAIL_REMINDERS && (
+          <Card title="Email reminders">
+            <p className="mb-3 text-sm text-muted">
+              The same reminders as an email to your login address. Off by default.
+            </p>
+            <label className="mb-3 flex items-center gap-2.5 text-sm">
+              <input
+                type="checkbox" checked={remindersEnabled}
+                onChange={(e) => void update({ reminders_enabled: e.target.checked }).catch(() => toast('Couldn’t save that.', { kind: 'error' }))}
+                className="size-4 accent-[var(--accent)]"
+              />
+              Email me task reminders
+            </label>
+          </Card>
+        )}
 
         <Card title="Habits">
           <label className="flex items-center gap-2.5 text-sm">

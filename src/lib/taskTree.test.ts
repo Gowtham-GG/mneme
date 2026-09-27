@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { childrenOf, descendantIds, linksOf, nudgeOrder, sortBetween } from './taskTree'
+import { childrenOf, descendantIds, linksOf, nudgeOrder, sortBetween, taskAsText } from './taskTree'
 import type { TaskItem, TaskTree } from '@/types/db'
 
 const task = (id: string, over: Partial<TaskItem> = {}): TaskItem => ({
@@ -74,5 +74,21 @@ describe('descendantIds', () => {
   it('collects the whole subtree', () => {
     expect([...descendantIds(tree, 'r')].sort()).toEqual(['a', 'b', 'c', 'g', 'loose'])
     expect([...descendantIds(tree, 'a')]).toEqual(['g'])
+  })
+})
+
+describe('taskAsText', () => {
+  it('writes the task, its sequences as numbered steps, then loose subtasks', () => {
+    const t = { ...tree, tasks: tree.tasks.map((x) => x.id === 'a' ? { ...x, state: 'done' as const } : x.id === 'r' ? { ...x, title: 'Trip', priority: 'high' as const, due_date: '2026-09-30', due_time: '14:30' } : x) }
+    expect(taskAsText(t, t.tasks[0])).toBe([
+      'Trip (high)',
+      'First:',
+      '  1. [x] a',
+      '     - [ ] g',
+      '  2. [ ] b',
+      'Second:',
+      '  1. [ ] c',
+      '- [ ] loose',
+    ].join('\n'))
   })
 })

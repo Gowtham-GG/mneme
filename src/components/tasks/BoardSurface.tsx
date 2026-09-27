@@ -15,7 +15,7 @@ import { childrenOf, descendantIds, isResolved, STATES, type LinkEnd } from '@/l
 import { TaskNode } from './TaskNode'
 import { ActionGroup, LinkList, TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
-import { IconCheck, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconPullIn, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
+import { IconCheck, IconCopy, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconPullIn, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
 
 type View = { x: number; y: number; k: number }
 type Gesture =
@@ -484,6 +484,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           )}
           <div className="px-2"><TaskMentions taskId={selTask.id} /></div>
           <div className="flex justify-end gap-3 px-2 pb-1 pt-0.5 text-xs text-muted">
+            <button className="flex items-center gap-1 hover:text-accent" title="Copy the task and its subtasks as text" onClick={() => void ui.act.copyText(selTask)}><IconCopy size={14} />Copy</button>
             <button className="flex items-center gap-1 hover:text-accent" title="Link it to another task on this board" onClick={() => setConnect({ from: selTask.id, at: null })}><IconLink size={14} />Connect…</button>
             <button className="flex items-center gap-1 hover:text-accent" title="See the full tree it belongs to" onClick={() => ui.openTree(selTask.root_id, selTask.id)}><IconTree size={14} />Whole task</button>
             <button className="flex items-center gap-1 hover:text-ink" onClick={() => setSel(null)}><IconX size={14} />Close</button>

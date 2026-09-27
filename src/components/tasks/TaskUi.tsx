@@ -13,7 +13,8 @@ import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
 import { addDays, formatDueDate, todayKey } from '@/lib/dates'
 import { useToast } from '@/contexts/ToastContext'
-import { descendantIds, isResolved, linksOf, nudgeOrder, STATES, type LinkEnd } from '@/lib/taskTree'
+import { copySecret } from '@/lib/clipboard'
+import { descendantIds, isResolved, linksOf, nudgeOrder, STATES, taskAsText, type LinkEnd } from '@/lib/taskTree'
 import { PRIORITIES } from './pickers'
 import { TaskNode, HighlightContext } from './TaskNode'
 import type { TaskItem, TaskPriority, TaskSequence, TaskState, TaskTree } from '@/types/db'
@@ -85,6 +86,16 @@ function useActions(confirm: (r: ConfirmReq) => void) {
       run(() => snoozeTask(t.id, until), 'Couldn’t snooze the task.', until ? `Snoozed until ${until}` : 'Back in your lists'),
     copyLink: async (t: TaskItem) => {
       try { await navigator.clipboard.writeText(`[[${t.code}]]`); toast(`Copied [[${t.code}]] — paste it into a note`) } catch { toast(`Link: [[${t.code}]]`) }
+    },
+    /** The task and its whole subtree as plain text (checklist lines), to paste anywhere. */
+    copyText: async (t: TaskItem) => {
+      const key = ['tasks', 'tree', t.root_id]
+      try {
+        // cached tree first: Safari only allows a clipboard write close to the tap
+        const tree = qc.getQueryData<TaskTree>(key) ?? await qc.fetchQuery({ queryKey: key, queryFn: () => getTaskTree(t.root_id) })
+        if (await copySecret(taskAsText(tree, t), 0)) toast('Copied')
+        else toast('Couldn’t copy — your browser blocked clipboard access.', { kind: 'error' })
+      } catch (e) { toast(ruleMessage(e, 'Couldn’t copy the task.'), { kind: 'error' }) }
     },
     canvas: (taskId: string, canvasId: string, on: boolean) => run(() => setTaskOnCanvas(taskId, canvasId, on), 'Couldn’t update the canvas.'),
     createCanvas: async (name: string) => {
@@ -303,7 +314,8 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
             ? { icon: IconSnooze, label: 'Wake up', hint: 'Show it again now', onClick: then(() => void ui.act.snooze(t, null)) }
             : { icon: IconSnooze, label: 'Snooze…', hint: 'Hide it until a later day', onClick: then(() => ui.openSnooze(t)) }]} />
           <ActionGroup title="Share" cols={1} acts={[
-            { icon: IconCopy, label: 'Copy link', hint: `Paste [[${t.code}]] into a note`, onClick: then(() => void ui.act.copyLink(t)) },
+            { icon: IconCopy, label: 'Copy text', hint: 'The task and its subtasks, to paste anywhere', onClick: then(() => void ui.act.copyText(t)) },
+            { icon: IconLink, label: 'Copy link', hint: `Paste [[${t.code}]] into a note`, onClick: then(() => void ui.act.copyLink(t)) },
           ]} />
           <ActionGroup title="View" cols={1} acts={[
             { icon: IconTree, label: 'Whole task', hint: 'See the full tree it belongs to', onClick: then(() => ui.openTree(t.root_id, t.id)) },
