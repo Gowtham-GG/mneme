@@ -57,8 +57,8 @@ Font: DM Sans (self-hosted, so the strict CSP stays intact). Eased motion, honou
 *Sapphire*, *Jade*, *Ember*, *Crimson*, *Graphite* — dark; *Slate*, *Lilac*, *Sand* — light; plus *Match my device*.
 A theme is just a few hue knobs in `src/index.css` (`--h`, `--h2`, `--ha`, …) and one entry in `src/lib/themes.ts`;
 every colour, glass tint, glow and the login letter derive from them. The database only checks the *shape* of the
-theme id (migration 07), so adding a theme never needs a migration. The browser tab icon is `public/icon.svg`
-(an "M." tile); PNG variants for installs live next to it.
+theme id (migration 07), so adding a theme never needs a migration. The browser tab icon is `public/favicon.png`
+(the "M." artwork, cropped close); the install icons (`icon-*.png`, `apple-touch-icon.png`) live next to it.
 
 ### Keyboard
 
