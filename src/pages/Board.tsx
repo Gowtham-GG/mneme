@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { boardKey, getBoard } from '@/api/board'
@@ -94,7 +95,8 @@ export function Board() {
 
 const DOT: Record<TaskState, string> = { open: 'bg-muted', in_progress: 'bg-accent', on_hold: 'bg-important', done: 'bg-task', cancelled: 'bg-faint' }
 
-/** The (i) on the open chip: how its tasks split by status. Fixed, so the scrolling tab strip can't clip it. */
+/** The (i) on the open chip: how its tasks split by status. Portalled to <body>: the strip scrolls and the glass
+ *  panels' backdrop-filter would trap a fixed child, clipping it and scrolling the strip. */
 function StatusSplit({ states, showDone }: { states: TaskState[]; showDone: boolean }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null)
   const pop = useRef<HTMLDivElement>(null)
@@ -105,7 +107,8 @@ function StatusSplit({ states, showDone }: { states: TaskState[]; showDone: bool
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAt(null) }
     const close = () => setAt(null)
     document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', esc); window.addEventListener('resize', close)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); window.removeEventListener('resize', close) }
+    document.addEventListener('scroll', close, true) // the strip or page moved: it'd float off its chip
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); window.removeEventListener('resize', close); document.removeEventListener('scroll', close, true) }
   }, [at])
   const rows = STATES.filter((s) => showDone || !isResolved(s.id)).map((s) => ({ ...s, n: states.filter((x) => x === s.id).length }))
   return (
@@ -115,8 +118,8 @@ function StatusSplit({ states, showDone }: { states: TaskState[]; showDone: bool
         onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt(at ? null : { x: Math.min(r.left, window.innerWidth - 188), y: r.bottom + 6 }) }}>
         <IconInfo size={13} />
       </button>
-      {at && (
-        <div ref={pop} role="dialog" aria-label="Tasks by status" className="glass-strong fixed z-50 w-44 rounded-xl p-2 text-sm font-normal text-ink" style={{ left: Math.max(8, at.x), top: at.y }}>
+      {at && createPortal(
+        <div ref={pop} role="dialog" onPointerDown={(e) => e.stopPropagation()} aria-label="Tasks by status" className="glass-strong fixed z-50 w-44 rounded-xl p-2 text-sm font-normal text-ink" style={{ left: Math.max(8, at.x), top: at.y }}>
           {rows.map((s) => (
             <div key={s.id} className="flex items-center gap-2 px-1 py-0.5">
               <span className={`size-2 rounded-full ${DOT[s.id]}`} aria-hidden />
@@ -125,7 +128,8 @@ function StatusSplit({ states, showDone }: { states: TaskState[]; showDone: bool
             </div>
           ))}
           {!showDone && <p className="mt-1 px-1 text-[11px] text-faint">Tick Done to count finished ones.</p>}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   )
