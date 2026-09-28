@@ -383,7 +383,20 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
             <marker id="arr-blocks" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0 0L10 5L0 10z" style={{ fill: 'var(--important)' }} />
             </marker>
+            {/* links run under the cards: the cards are see-through, so cut their shapes out of the line layer */}
+            <mask id="under-cards" maskUnits="userSpaceOnUse" x={-HIT} y={-HIT} width={HIT * 2} height={HIT * 2}>
+              <rect x={-HIT} y={-HIT} width={HIT * 2} height={HIT * 2} fill="white" />
+              {data.tasks.map((t) => {
+                const a = drawn.get(t.id)
+                return a && <rect key={t.id} x={a.x + 1} y={a.y + 1} width={BOX_W - 2} height={BOX_H - 2} rx={11} fill="black" />
+              })}
+              {portals.map((p) => {
+                const a = portalAt.get(p.id)
+                return a && <rect key={p.id} x={a.x + 1} y={a.y + 1} width={PORTAL_W - 2} height={PORTAL_H - 2} rx={PORTAL_H / 2 - 1} fill="black" />
+              })}
+            </mask>
           </defs>
+          <g mask="url(#under-cards)">
           {edges.map((e) => {
             const a = drawn.get(e.from), b = drawn.get(e.to)
             if (!a || !b) return null
@@ -405,6 +418,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
             return <path key={p.id} d={p.outgoing ? edgePath(a, BOX_W, BOX_H, b, PORTAL_W, PORTAL_H) : edgePath(b, PORTAL_W, PORTAL_H, a, BOX_W, BOX_H)} fill="none"
               style={{ stroke: st.stroke }} strokeWidth={st.width} strokeDasharray={st.dash} markerEnd={st.marker} opacity={!chain || chain.has(p.taskId) ? 1 : 0.12} />
           })}
+          </g>
           {connect?.at && drawn.get(connect.from) && (
             <path d={`M ${drawn.get(connect.from)!.x + BOX_W} ${drawn.get(connect.from)!.y + BOX_H / 2} L ${connect.at.x} ${connect.at.y}`}
               style={{ stroke: 'var(--accent)' }} strokeWidth={2} strokeDasharray="4 4" />
@@ -462,9 +476,11 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
       </div>
 
       {connect && connect.at === null && (
-        <div data-ui className="glass-strong absolute left-1/2 top-14 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-sm">
-          <IconLink size={15} className="text-accent" />Now tap the task to connect “{short(byId.get(connect.from)?.title ?? '')}” with
-          <button className="text-faint hover:text-ink" onClick={() => setConnect(null)}>Cancel</button>
+        // phones: a full-width bar (centred at 50% it only got half the width and squashed into an oval)
+        <div data-ui className="glass-strong absolute inset-x-2 top-14 flex items-center gap-2 rounded-2xl px-3 py-2 text-sm sm:inset-x-auto sm:left-1/2 sm:w-max sm:max-w-[calc(100%-1rem)] sm:-translate-x-1/2 sm:rounded-full sm:py-1.5">
+          <IconLink size={15} className="shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate">Now tap the task to connect “{short(byId.get(connect.from)?.title ?? '')}” with</span>
+          <button className="shrink-0 text-faint hover:text-ink" onClick={() => setConnect(null)}>Cancel</button>
         </div>
       )}
 

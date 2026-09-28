@@ -63,4 +63,5 @@ export const IconSwap = mk(<path d="M7 4 4 7l3 3M4 7h13M17 20l3-3-3-3M20 17H7" /
 export const IconUnlink = mk(<><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /><path d="m4 4 16 16" /></>)
 export const IconCompass = mk(<><circle cx="12" cy="12" r="8.5" /><path d="m15.5 8.5-2 5-5 2 2-5z" /></>)
 export const IconPalette = mk(<><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.9 1.5-1.9-.3-1 .3-2.1 1.5-2.1h2a3.5 3.5 0 0 0 3.5-3.5c0-5.2-3.8-9.5-8.5-9.5z" /><circle cx="8" cy="11" r="1" fill="currentColor" /><circle cx="11.5" cy="7.5" r="1" fill="currentColor" /><circle cx="15.5" cy="9" r="1" fill="currentColor" /></>)
+export const IconInfo = mk(<><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5" /><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none" /></>)
 export const IconFlag = mk(<path d="M5.5 21V4m0 0h11l-2 4 2 4h-11" />)

@@ -9,8 +9,9 @@ import { useToast } from '@/contexts/ToastContext'
 import { BoardSurface } from '@/components/tasks/BoardSurface'
 import { TaskUiProvider, useTaskUi } from '@/components/tasks/TaskUi'
 import { ViewToggle } from '@/components/tasks/ViewToggle'
-import type { Canvas } from '@/types/db'
-import { IconMore, IconPlus } from '@/components/icons'
+import { isResolved, STATES } from '@/lib/taskTree'
+import type { Canvas, TaskState } from '@/types/db'
+import { IconInfo, IconMore, IconPlus } from '@/components/icons'
 
 const LAST = 'mneme-board-canvas'
 const remember = (v: string) => { try { localStorage.setItem(LAST, v) } catch { /* private mode */ } }
@@ -91,6 +92,45 @@ export function Board() {
   return <TaskUiProvider><BoardPage /></TaskUiProvider>
 }
 
+const DOT: Record<TaskState, string> = { open: 'bg-muted', in_progress: 'bg-accent', on_hold: 'bg-important', done: 'bg-task', cancelled: 'bg-faint' }
+
+/** The (i) on the open chip: how its tasks split by status. Fixed, so the scrolling tab strip can't clip it. */
+function StatusSplit({ states, showDone }: { states: TaskState[]; showDone: boolean }) {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  const pop = useRef<HTMLDivElement>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!at) return
+    const away = (e: PointerEvent) => { const t = e.target as Node; if (!pop.current?.contains(t) && !btn.current?.contains(t)) setAt(null) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAt(null) }
+    const close = () => setAt(null)
+    document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', esc); window.addEventListener('resize', close)
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); window.removeEventListener('resize', close) }
+  }, [at])
+  const rows = STATES.filter((s) => showDone || !isResolved(s.id)).map((s) => ({ ...s, n: states.filter((x) => x === s.id).length }))
+  return (
+    <>
+      <button ref={btn} aria-label="Split by status" aria-expanded={!!at} className="-mr-1 rounded-full p-0.5 hover:bg-on-accent/20"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt(at ? null : { x: Math.min(r.left, window.innerWidth - 188), y: r.bottom + 6 }) }}>
+        <IconInfo size={13} />
+      </button>
+      {at && (
+        <div ref={pop} role="dialog" aria-label="Tasks by status" className="glass-strong fixed z-50 w-44 rounded-xl p-2 text-sm font-normal text-ink" style={{ left: Math.max(8, at.x), top: at.y }}>
+          {rows.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 px-1 py-0.5">
+              <span className={`size-2 rounded-full ${DOT[s.id]}`} aria-hidden />
+              <span className="flex-1 text-muted">{s.label}</span>
+              <span className="tabular-nums">{s.n}</span>
+            </div>
+          ))}
+          {!showDone && <p className="mt-1 px-1 text-[11px] text-faint">Tick Done to count finished ones.</p>}
+        </div>
+      )}
+    </>
+  )
+}
+
 function BoardPage() {
   const ui = useTaskUi()
   const qc = useQueryClient()
@@ -134,6 +174,10 @@ function BoardPage() {
   }
 
   const board = useQuery({ queryKey: ['tasks', 'board', canvasId, showDone], queryFn: () => getBoard(canvasId, showDone) })
+  // shown on the open chip, so you know what's left without scanning the board
+  const open = board.data?.tasks.filter((t) => !isResolved(t.state)).length
+  const count = open != null && <span className="text-xs font-normal tabular-nums opacity-70">({open})</span>
+  const split = board.data && <StatusSplit states={board.data.tasks.map((t) => t.state)} showDone={showDone} />
   const go = (id: string | null) => { remember(id ?? 'inbox'); setSp(id ? { canvas: id } : {}) }
   const create = async () => {
     const n = name.trim()
@@ -154,13 +198,17 @@ function BoardPage() {
           <ViewToggle />
         </div>
         <div ref={strip} role="tablist" aria-label="Canvases" className="mb-3 flex select-none items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-          <button role="tab" aria-selected={!canvasId} className={tab(!canvasId)} onClick={() => go(null)}>Inbox</button>
+          <span className={tab(!canvasId)}>
+            <button role="tab" aria-selected={!canvasId} onClick={() => go(null)}>Inbox{!canvasId && <> {count}</>}</button>
+            {!canvasId && split}
+          </span>
           {shown.map((c) => {
             const on = c.id === canvasId
             return (
               <span key={c.id} data-chip={c.id} title="Drag to reorder" onPointerDown={drag.onPointerDown(c.id)} onContextMenu={(e) => e.preventDefault()}
                 className={`${tab(on)} ${drag.dragging === c.id ? 'cursor-grabbing ring-2 ring-accent' : ''}`}>
-                <button role="tab" aria-selected={on} onClick={() => go(c.id)}>{c.name}</button>
+                <button role="tab" aria-selected={on} onClick={() => go(c.id)}>{c.name}{on && <> {count}</>}</button>
+                {on && split}
                 {on && <button aria-label={`Canvas “${c.name}” options`} className="-mr-1.5 rounded-full p-0.5 hover:bg-on-accent/20" onClick={() => { setEditing(c); setName(c.name) }}><IconMore size={14} /></button>}
               </span>
             )
