@@ -180,9 +180,8 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
       <PickerDialog req={picker} onClose={() => setPicker(null)} />
       <CanvasDialog task={canvasFor} onClose={() => setCanvasFor(null)} />
       <SnoozeDialog task={snoozeFor} onClose={() => setSnoozeFor(null)} />
-      {/* a habit's step gets its own days within its parent's, and a count */}
-      <StepRhythmDialog open={!!rhythmFor && isHabitStep(rhythmFor)} title={rhythmFor?.title ?? ''} group={!!rhythmFor && rhythmFor.child_count > 0}
-        allowed={rhythmFor?.parent_days ?? 127}
+      {/* a habit's step gets its own days within its parent's */}
+      <StepRhythmDialog open={!!rhythmFor && isHabitStep(rhythmFor)} title={rhythmFor?.title ?? ''} allowed={rhythmFor?.parent_days ?? 127}
         initial={{ step_days: rhythmFor?.step_days ?? null, rhythm_target: rhythmFor?.rhythm_target ?? 1, rhythm_unit: rhythmFor?.rhythm_unit ?? null }}
         onClose={() => setRhythmFor(null)} onSave={(r) => rhythmFor && void act.stepRhythm(rhythmFor, r)} />
       <RhythmDialog open={!!rhythmFor && !isHabitStep(rhythmFor)} title={rhythmFor?.title ?? ''} steps={!!rhythmFor && rhythmFor.child_count > 0}
@@ -361,7 +360,7 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
             <ActionGroup title="Repeat" cols={1} acts={[
               isHabit && { icon: IconRepeat, label: 'Rhythm…', hint: `${rhythmLabel(t.rhythm_days!)} — change days, target, or stop`, onClick: then(() => ui.openRhythm(t)) },
               isHabit && { icon: IconEdit, label: 'Note for today', hint: 'A line about how it went', onClick: then(() => ui.openNote(t)) },
-              isStep && { icon: IconRepeat, label: 'Days & count…', hint: `${t.step_days !== null ? rhythmLabel(t.step_days) : 'Same days as above'}${t.rhythm_target > 1 && t.child_count === 0 ? ` · ${t.rhythm_target}${t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}` : ''} — its own days, or a count like 3 sets`, onClick: then(() => ui.openRhythm(t)) },
+              isStep && { icon: IconRepeat, label: 'Days…', hint: `${t.step_days != null ? rhythmLabel(t.step_days) : 'Same days as above'} — its own days`, onClick: then(() => ui.openRhythm(t)) },
               isStep && { icon: IconTree, label: 'Habit', hint: 'Open the routine this step is part of', onClick: then(() => ui.openTree(t.root_id, t.id)) },
             ]} />
           ) : (

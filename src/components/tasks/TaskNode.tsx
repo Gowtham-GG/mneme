@@ -211,11 +211,9 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
               <IconRepeat size={11} />{rhythmLabel(t.rhythm_days)}{t.rhythm_target > 1 && t.child_count === 0 ? ` · ${t.rhythm_target}${t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}` : ''}
             </button>
           )}
-          {t.habit_id && t.rhythm_days === null && (t.step_days !== null || (t.rhythm_target > 1 && t.child_count === 0)) && (
-            <button className={`${pill} inline-flex items-center gap-1 bg-accent-soft text-accent`} title="Its own days and count — change" onClick={() => ui.openRhythm(t)}>
-              {t.step_days !== null && <><IconRepeat size={11} />{rhythmLabel(t.step_days)}</>}
-              {t.step_days !== null && t.rhythm_target > 1 && t.child_count === 0 && ' · '}
-              {t.rhythm_target > 1 && t.child_count === 0 && <span className="tabular-nums">{t.value_today ?? 0}/{t.rhythm_target}{t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}</span>}
+          {t.habit_id && t.rhythm_days === null && t.step_days != null && (
+            <button className={`${pill} inline-flex items-center gap-1 bg-accent-soft text-accent`} title="Its own days — change" onClick={() => ui.openRhythm(t)}>
+              <IconRepeat size={11} />{rhythmLabel(t.step_days)}
             </button>
           )}
           {showStreaks && !!t.streak && t.streak >= 2 && <span className={`${pill} tabular-nums text-important`} title={`${t.streak}-day streak`}><IconFlame size={11} className="-mt-0.5 mr-0.5 inline" />{t.streak}</span>}

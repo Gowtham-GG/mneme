@@ -75,48 +75,32 @@ function RhythmForm({ title, initial, steps, onClose, onSave, onStop }: RhythmPr
 }
 
 type StepProps = {
-  open: boolean; title: string; initial: StepRhythm; /** the days its parent is on */ allowed: number; /** has steps of its own: no count */ group: boolean
+  open: boolean; title: string; initial: StepRhythm; /** the days its parent is on */ allowed: number
   onClose: () => void; onSave: (r: StepRhythm) => void
 }
 
-/** A habit's step: its own days within its parent's (all of them = follow the parent), and a count like "3 sets". */
+/** A habit's step: its own days within its parent's (all of them = follow the parent). */
 export function StepRhythmDialog(p: StepProps) {
   return (
-    <Dialog open={p.open} onClose={p.onClose} title="Days & count" closable>
+    <Dialog open={p.open} onClose={p.onClose} title="Days" closable>
       <StepForm {...p} />
     </Dialog>
   )
 }
 
-function StepForm({ title, initial, allowed, group, onClose, onSave }: StepProps) {
+function StepForm({ title, initial, allowed, onClose, onSave }: StepProps) {
   const [days, setDays] = useState((initial.step_days ?? allowed) & allowed || allowed)
-  const [target, setTarget] = useState(String(initial.rhythm_target))
-  const [unit, setUnit] = useState(initial.rhythm_unit ?? '')
   const save = () => {
-    onSave({
-      step_days: days === allowed ? null : days,
-      rhythm_target: group ? initial.rhythm_target : Math.min(1000, Math.max(1, Number(target) || 1)),
-      rhythm_unit: group ? initial.rhythm_unit : unit.trim() || null,
-    })
+    onSave({ ...initial, step_days: days === allowed ? null : days })
     onClose()
   }
   return (
     <>
-      <h2 className="mb-1 pr-8 text-base font-semibold">Days & count</h2>
+      <h2 className="mb-1 pr-8 text-base font-semibold">Days</h2>
       <p className="mb-4 line-clamp-1 text-sm text-faint">{title}</p>
-      <div className="grid gap-3">
-        <div>
-          <DayPicker value={days} allowed={allowed} onChange={setDays} />
-          <p className="mt-1.5 text-xs text-faint">{days === allowed ? 'Same days as the step above it' : 'Only on these days'}</p>
-        </div>
-        {!group && (
-          <div className="flex items-center gap-2 text-sm">
-            <input value={target} inputMode="numeric" aria-label="Count" onChange={(e) => setTarget(e.target.value.replace(/\D/g, ''))}
-              className={`${inputCls} w-16 text-center tabular-nums`} />
-            <input value={unit} aria-label="Unit" placeholder="sets, reps…" maxLength={20} onChange={(e) => setUnit(e.target.value)} className={`${inputCls} w-28`} />
-            <span className="text-xs text-faint">each time</span>
-          </div>
-        )}
+      <div>
+        <DayPicker value={days} allowed={allowed} onChange={setDays} />
+        <p className="mt-1.5 text-xs text-faint">{days === allowed ? 'Same days as the step above it' : 'Only on these days'}</p>
       </div>
       <div className="mt-5 flex items-center justify-end gap-2">
         <button className="rounded-xl px-4 py-2 text-sm hover:bg-hover" onClick={onClose}>Cancel</button>

@@ -104,7 +104,7 @@ function BoardBox({ t, at, dim, selected, connecting, progress }: { t: TaskItem;
         <span className={`line-clamp-2 text-[13px] leading-snug ${resolved ? 'text-faint line-through' : t.blocked ? 'text-muted' : ''}`}>{t.title}</span>
       </div>
       <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] text-faint">
-        {(t.rhythm_days ?? t.step_days) !== null && <span className="inline-flex items-center gap-0.5 text-accent"><IconRepeat size={10} />{rhythmLabel((t.rhythm_days ?? t.step_days)!)}</span>}
+        {(t.rhythm_days ?? t.step_days) != null && <span className="inline-flex items-center gap-0.5 text-accent"><IconRepeat size={10} />{rhythmLabel((t.rhythm_days ?? t.step_days)!)}</span>}
         {habit && counted && <span className="tabular-nums text-accent">{t.value_today ?? 0}/{t.rhythm_target}{t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}</span>}
         {t.rhythm_days !== null && showStreaks && !!t.streak && t.streak >= 2 && <span className="tabular-nums text-important"><IconFlame size={10} className="-mt-0.5 inline" />{t.streak}</span>}
         {t.state !== 'open' && !resolved && <span className={t.state === 'in_progress' ? 'text-accent' : 'text-important'}>{STATES.find((s) => s.id === t.state)?.label}</span>}
