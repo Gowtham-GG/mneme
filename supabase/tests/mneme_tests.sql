@@ -767,62 +767,192 @@ begin
 end $$;
 
 -- ================================================================== 13. habits ==
+-- habits are tasks with a rhythm (migration 27)
 do $$
 declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001'; b uuid := 'bbbbbbbb-0000-0000-0000-000000000002';
-        h_run uuid; h_water uuid; h_gym uuid; today date; v int; r record; mon date;
+        h_run uuid; h_water uuid; h_gym uuid; h_am uuid; s1 uuid; s2 uuid; s3 uuid; q uuid; plain uuid;
+        today date; v int; r record; mon date;
 begin
   perform t.login(a);
   update mneme.settings set timezone = 'UTC';
   select (now() at time zone 'UTC')::date into today;
-  insert into mneme.habits (name, created_at) values ('Run', now() - interval '10 days') returning id into h_run;
-  insert into mneme.habits (name, target, unit, created_at) values ('Water', 8, 'glasses', now() - interval '10 days') returning id into h_water;
+  insert into mneme.tasks (source, title, rhythm_days, created_at) values ('standalone', 'Run', 127, now() - interval '10 days') returning id into h_run;
+  insert into mneme.tasks (source, title, rhythm_days, rhythm_target, rhythm_unit, created_at)
+    values ('standalone', 'Water', 127, 8, 'glasses', now() - interval '10 days') returning id into h_water;
 
   -- counts: atomic +/-, never below zero, zero removes the row
-  perform mneme.bump_habit(h_water, today, 1); perform mneme.bump_habit(h_water, today, 1);
-  v := mneme.bump_habit(h_water, today, 1);
-  perform t.ok(v = 3, 'bump_habit adds up taps');
-  v := mneme.bump_habit(h_water, today, -1);
-  perform t.ok(v = 2, 'bump_habit subtracts');
-  v := mneme.bump_habit(h_water, today, -5);
-  perform t.ok(v = 0 and not exists (select 1 from mneme.habit_logs where habit_id = h_water and day = today),
-               'going to zero deletes the log row');
-  v := mneme.bump_habit(h_water, today, -1);
+  perform mneme.check_in(h_water, today, 1); perform mneme.check_in(h_water, today, 1);
+  v := mneme.check_in(h_water, today, 1);
+  perform t.ok(v = 3, 'check_in adds up taps');
+  v := mneme.check_in(h_water, today, -1);
+  perform t.ok(v = 2, 'check_in subtracts');
+  v := mneme.check_in(h_water, today, -5);
+  perform t.ok(v = 0 and not exists (select 1 from mneme.task_checkins where task_id = h_water and day = today),
+               'going to zero deletes the check-in row');
+  v := mneme.check_in(h_water, today, -1);
   perform t.ok(v = 0, 'minus on nothing stays at zero');
-  perform t.ok(t.throws(format('select mneme.bump_habit(%L, %L::date, 1)', h_run, today + 3)), 'cannot log a future day');
+  perform t.ok(t.throws(format('select mneme.check_in(%L, %L::date, 1)', h_run, today + 3)), 'cannot log a future day');
 
   -- streak: 3 days in a row before today, today not done yet -> streak 3 (today does not break it)
-  perform mneme.bump_habit(h_run, today - 1, 1); perform mneme.bump_habit(h_run, today - 2, 1); perform mneme.bump_habit(h_run, today - 3, 1);
+  perform mneme.check_in(h_run, today - 1, 1); perform mneme.check_in(h_run, today - 2, 1); perform mneme.check_in(h_run, today - 3, 1);
   select * into r from mneme.habits_for_day(today) where id = h_run;
-  perform t.ok(r.streak = 3 and r.value = 0 and r.due, 'streak counts consecutive days; today pending does not break it');
-  perform mneme.bump_habit(h_run, today, 1);
+  perform t.ok(r.streak = 3 and r.value = 0 and r.due and r.name = 'Run', 'streak counts consecutive days; today pending does not break it');
+  perform mneme.check_in(h_run, today, 1);
   perform t.ok((select streak from mneme.habits_for_day(today) where id = h_run) = 4, 'doing it today extends the streak');
-  perform mneme.bump_habit(h_run, today - 2, -1);   -- a gap two days ago
+  perform t.ok((select streak from mneme.tasks_active where id = h_run) = 4, 'tasks_active carries the streak too');
+  perform mneme.check_in(h_run, today - 2, -1);   -- a gap two days ago
   perform t.ok((select streak from mneme.habits_for_day(today) where id = h_run) = 2, 'a missed due day resets the streak');
 
   -- count habits only count days that reached the target
-  perform mneme.bump_habit(h_water, today - 1, 8); perform mneme.bump_habit(h_water, today - 2, 5);
+  perform mneme.check_in(h_water, today - 1, 8); perform mneme.check_in(h_water, today - 2, 5);
   perform t.ok((select streak from mneme.habits_for_day(today) where id = h_water) = 1, 'a count below target is not a streak day');
 
   -- weekdays: a Mon/Wed/Fri habit is not due on other days, and those days never break its streak
   mon := today - (extract(isodow from today)::int - 1) - 7;   -- Monday of last week
-  insert into mneme.habits (name, days, created_at) values ('Gym', 1 | 4 | 16, (mon - 7)::timestamptz) returning id into h_gym;
-  perform mneme.bump_habit(h_gym, mon, 1); perform mneme.bump_habit(h_gym, mon + 2, 1); perform mneme.bump_habit(h_gym, mon + 4, 1);
+  insert into mneme.tasks (source, title, rhythm_days, created_at) values ('standalone', 'Gym', 1 | 4 | 16, (mon - 7)::timestamptz) returning id into h_gym;
+  perform mneme.check_in(h_gym, mon, 1); perform mneme.check_in(h_gym, mon + 2, 1); perform mneme.check_in(h_gym, mon + 4, 1);
   perform t.ok(not (select due from mneme.habits_for_day(mon + 1) where id = h_gym), 'a Mon/Wed/Fri habit is not due on Tuesday');
   perform t.ok((select streak from mneme.habits_for_day(mon + 6) where id = h_gym) = 3, 'off days (Tue/Thu/weekend) do not break a weekday streak');
 
   -- created later -> hidden on earlier days
   perform t.ok(not exists (select 1 from mneme.habits_for_day(today - 30) where id = h_run), 'a habit is not listed before it existed');
+
+  -- typed rhythm
+  perform t.ok((select days from mneme.parse_rhythm('stretch every day')) = 127 and (select title from mneme.parse_rhythm('stretch every day')) = 'stretch', 'parse_rhythm: every day');
+  perform t.ok((select days from mneme.parse_rhythm('gym every mon, wed and fri')) = 21, 'parse_rhythm: listed weekdays');
+  perform t.ok((select days from mneme.parse_rhythm('call mum every Sunday')) = 64, 'parse_rhythm: one weekday, any case');
+  perform t.ok((select days from mneme.parse_rhythm('standup weekdays')) = 31 and (select days from mneme.parse_rhythm('long run weekends')) = 96, 'parse_rhythm: weekdays / weekends');
+  perform t.ok((select days from mneme.parse_rhythm('daily')) is null and (select days from mneme.parse_rhythm('pay rent every month')) is null, 'parse_rhythm leaves non-rhythms alone');
+  insert into mneme.tasks (source, title, due_date) values ('standalone', 'floss daily', today) returning id into q;
+  select * into r from mneme.tasks where id = q;
+  perform t.ok(r.title = 'floss' and r.rhythm_days = 127 and r.due_date is null, 'a new task typed "… daily" becomes a dateless habit');
+
+  -- habits stay out of the task lists
+  perform t.ok(not exists (select 1 from mneme.list_tasks('no_date') where rhythm_days is not null), 'habits are not in No date');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('today') where id = q), 'habits are not in Today');
+
+  -- habits are main tasks without dates
+  insert into mneme.tasks (source, title) values ('standalone', 'plain') returning id into plain;
+  perform t.ok(t.throws(format('update mneme.tasks set parent_id = %L where id = %L', plain, h_run)), 'a habit can''t become a subtask');
+  update mneme.tasks set due_date = today + 2 where id = h_run;
+  perform t.ok((select due_date from mneme.tasks where id = h_run) is null, 'a habit never keeps a date');
+
+  -- routines: steps ticked per day
+  insert into mneme.tasks (source, title, rhythm_days, created_at) values ('standalone', 'Morning', 127, now() - interval '3 days') returning id into h_am;
+  perform mneme.add_subtask(h_am, 'water'); select id into s1 from mneme.tasks where parent_id = h_am and title = 'water';
+  perform mneme.add_subtask(h_am, 'stretch'); select id into s2 from mneme.tasks where parent_id = h_am and title = 'stretch';
+  perform t.ok((select due_date from mneme.tasks where id = s1) is null, 'steps have no dates');
+  perform t.ok(t.throws(format('select mneme.set_task_state(%L, ''done'')', s1)), 'a step can''t be marked done — it''s ticked per day');
+  perform mneme.check_in(s1, today, 1);
+  select * into r from mneme.habits_for_day(today) where id = h_am;
+  perform t.ok(r.value = 1 and r.target = 2 and jsonb_array_length(r.steps) = 2, 'a routine shows steps done / total');
+  perform t.ok(not exists (select 1 from mneme.task_checkins where task_id = h_am and day = today and value > 0), 'half a routine doesn''t count the day');
+  perform mneme.check_in(s2, today, 1);
+  perform t.ok((select value from mneme.task_checkins where task_id = h_am and day = today) = 1, 'every step ticked counts the routine for the day');
+  perform t.ok((select checked_today from mneme.tasks_active where id = h_am) and (select checked_today from mneme.tasks_active where id = s2), 'tasks_active says what is ticked today');
+  perform t.ok((select state from mneme.tasks where id = h_am) = 'open', 'a ticked routine stays open (it isn''t finished, it repeats)');
+  perform mneme.add_subtask(h_am, 'journal'); select id into s3 from mneme.tasks where parent_id = h_am and title = 'journal';
+  perform t.ok(not exists (select 1 from mneme.task_checkins where task_id = h_am and day = today and value > 0), 'a new step re-opens today''s routine');
+  perform mneme.set_task_state(s3, 'on_hold');
+  perform t.ok((select value from mneme.task_checkins where task_id = h_am and day = today) = 1, 'a step on hold is out of the routine');
+  perform mneme.check_in(h_am, today, -1);
+  perform t.ok(not exists (select 1 from mneme.task_checkins where task_id in (h_am, s1, s2) and day = today and value > 0), 'unticking the routine unticks its steps');
+  perform mneme.check_in(h_am, today, 1);
+  perform t.ok((select count(*) from mneme.task_checkins where task_id in (h_am, s1, s2) and day = today and value = 1) = 3, 'ticking the routine ticks every step');
+
+  -- statuses: paused freezes the streak, graduated keeps its steps
+  delete from mneme.task_checkins where task_id = h_run;
+  perform mneme.check_in(h_run, today - 5, 1); perform mneme.check_in(h_run, today - 4, 1);
+  update mneme.tasks set state = 'on_hold' where id = h_run;
+  update mneme.tasks set rhythm_paused_on = today - 3 where id = h_run;   -- as if paused three days ago
+  perform t.ok(not exists (select 1 from mneme.habits_for_day(today) where id = h_run), 'a paused habit leaves the strip');
+  perform t.ok(t.throws(format('select mneme.check_in(%L, %L::date, 1)', h_run, today)), 'a paused habit can''t be ticked');
+  update mneme.tasks set state = 'open' where id = h_run;
+  perform t.ok((select count(*) from mneme.task_checkins where task_id = h_run and skipped) = 3, 'the paused days are recorded as skipped');
+  perform t.ok((select streak from mneme.habits_for_day(today) where id = h_run) = 2, 'pausing froze the streak instead of breaking it');
+  perform mneme.set_task_state(h_am, 'done');
+  perform t.ok((select state from mneme.tasks where id = h_am) = 'done', 'a routine can graduate with its steps still open');
+  perform t.ok(not exists (select 1 from mneme.list_tasks('completed') where id = h_am), 'a graduated habit stays out of the Done list');
+
+  -- a note on the day
+  perform mneme.set_checkin_note(h_water, today, '  felt good  ');
+  perform t.ok((select note from mneme.habits_for_day(today) where id = h_water) = 'felt good', 'a check-in keeps a note');
+  perform mneme.check_in(h_water, today, 1); perform mneme.check_in(h_water, today, -1);
+  perform t.ok(exists (select 1 from mneme.task_checkins where task_id = h_water and day = today), 'a note keeps its row at zero');
+  perform mneme.set_checkin_note(h_water, today, '');
+  perform t.ok(not exists (select 1 from mneme.task_checkins where task_id = h_water and day = today), 'clearing the note drops the empty row');
   perform t.logout();
 
   -- isolation
   perform t.login(b);
   perform t.ok(not exists (select 1 from mneme.habits_for_day(today)), 'B sees none of A''s habits');
-  perform t.ok(t.throws(format('select mneme.bump_habit(%L, %L::date, 1)', h_run, today)), 'B cannot log A''s habit');
-  perform t.ok(t.throws(format('insert into mneme.habit_logs (habit_id, day, value) values (%L, %L::date, 1)', h_run, today)),
-               'B cannot write a log row against A''s habit directly');
+  perform t.ok(t.throws(format('select mneme.check_in(%L, %L::date, 1)', h_run, today)), 'B cannot log A''s habit');
+  perform t.ok(t.throws(format('insert into mneme.task_checkins (task_id, day, value) values (%L, %L::date, 1)', h_run, today)),
+               'B cannot write a check-in against A''s habit directly');
   perform t.logout();
   perform t.anon();
   perform t.ok(t.throws(format('select * from mneme.habits_for_day(%L::date)', today)), 'anon cannot read habits');
+  perform t.logout();
+end $$;
+
+-- ============================================================ 13b. sub-habits ==
+-- a step can have its own days (and a count) inside its habit
+do $$
+declare a uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+        gym uuid; upper_b uuid; legs uuid; shoulders uuid; bench uuid; rows_ uuid; plain uuid;
+        today date; mon date; v int; r record;
+begin
+  perform t.login(a);
+  select (now() at time zone 'UTC')::date into today;
+  mon := today - (extract(isodow from today)::int - 1) - 7;   -- Monday of last week
+  insert into mneme.tasks (source, title, rhythm_days, created_at) values ('standalone', 'Hit the gym', 127, (mon - 14)::timestamptz) returning id into gym;
+  perform mneme.add_subtask(gym, 'Upper body every mon, wed and fri');
+  perform mneme.add_subtask(gym, 'Legs every thu');
+  perform mneme.add_subtask(gym, 'Shoulders every tuesday');
+  select id into upper_b from mneme.tasks where parent_id = gym and title = 'Upper body';
+  select id into legs from mneme.tasks where parent_id = gym and title = 'Legs';
+  select id into shoulders from mneme.tasks where parent_id = gym and title = 'Shoulders';
+  perform t.ok(upper_b is not null and (select step_days from mneme.tasks where id = upper_b) = 21
+               and (select step_days from mneme.tasks where id = legs) = 8, 'a step typed "… every mon, wed and fri" gets its own days');
+  perform mneme.add_subtask(upper_b, 'Bench press'); select id into bench from mneme.tasks where parent_id = upper_b and title = 'Bench press';
+  perform mneme.add_subtask(upper_b, 'Rows daily'); select id into rows_ from mneme.tasks where parent_id = upper_b and title = 'Rows';
+  perform t.ok(rows_ is not null and (select step_days from mneme.tasks where id = rows_) is null, '"every day" on a step just follows its parent');
+  update mneme.tasks set rhythm_target = 3, rhythm_unit = 'sets' where id = bench;
+
+  perform t.ok(mneme.routine_days(gym) = 31, 'a daily habit is on only the days one of its steps is (Mon–Fri here)');
+  perform t.ok((select due_days from mneme.tasks_active where id = upper_b) = 21 and (select parent_days from mneme.tasks_active where id = bench) = 21,
+               'tasks_active: a step''s days and what its own steps can pick from');
+  perform t.ok(not (select due from mneme.habits_for_day(mon + 6) where id = gym), 'Sunday is a rest day — the habit isn''t due');
+  select * into r from mneme.habits_for_day(mon) where id = gym;
+  perform t.ok(r.due and jsonb_array_length(r.steps) = 1 and r.steps->0->>'title' = 'Upper body'
+               and jsonb_array_length(r.steps->0->'steps') = 2, 'Monday shows only Upper body, with its exercises nested');
+  perform t.ok(t.throws(format('select mneme.check_in(%L, %L::date, 1)', legs, mon)), 'a step can''t be ticked on a day it isn''t on');
+
+  -- counted step: 3 sets
+  perform mneme.check_in(bench, mon, 1);
+  perform mneme.check_in(rows_, mon, 1);
+  perform t.ok(not exists (select 1 from mneme.task_checkins where task_id = gym and day = mon and value > 0), '1 of 3 sets doesn''t finish the exercise');
+  v := mneme.check_in(bench, mon, 5);
+  perform t.ok(v = 3, 'a step''s count stops at its target');
+  perform t.ok((select value from mneme.task_checkins where task_id = gym and day = mon) = 1, 'all of Monday''s steps done -> the habit counts for Monday');
+
+  -- ticking the habit ticks only that day's steps
+  perform mneme.check_in(gym, mon + 1, 1);
+  perform t.ok((select value from mneme.task_checkins where task_id = shoulders and day = mon + 1) = 1
+               and not exists (select 1 from mneme.task_checkins where task_id in (legs, bench) and day = mon + 1),
+               'ticking the habit on Tuesday ticks Shoulders only');
+  perform mneme.check_in(upper_b, mon + 2, 1);
+  perform t.ok((select value from mneme.task_checkins where task_id = bench and day = mon + 2) = 3, 'ticking a group fills its counted steps');
+  perform mneme.check_in(legs, mon + 3, 1);
+  perform mneme.check_in(gym, mon + 4, 1);
+  perform t.ok((select streak from mneme.habits_for_day(mon + 6) where id = gym) = 5, 'the weekend rest days don''t break the streak');
+
+  -- days only live inside a habit
+  insert into mneme.tasks (source, title) values ('standalone', 'plain') returning id into plain;
+  update mneme.tasks set parent_id = null where id = shoulders;
+  perform t.ok((select step_days from mneme.tasks where id = shoulders) is null, 'a step moved out of its habit drops its days');
+  perform mneme.add_subtask(plain, 'thing every mon');
+  perform t.ok((select title from mneme.tasks where parent_id = plain) = 'thing every mon', 'outside a habit "every mon" is just text');
   perform t.logout();
 end $$;
 
@@ -834,12 +964,12 @@ begin
   perform t.login(a);
   update mneme.settings set timezone = 'UTC';
   select (now() at time zone 'UTC')::date into today;
-  delete from mneme.habits;
-  insert into mneme.habits (name, created_at) values ('Read', now() - interval '5 days');
-  insert into mneme.habits (name, target, created_at) values ('Water', 8, now() - interval '5 days');
-  perform mneme.bump_habit(id, today - 1, 1) from mneme.habits where name = 'Read';
-  perform mneme.bump_habit(id, today - 1, 8) from mneme.habits where name = 'Water';
-  perform mneme.bump_habit(id, today - 2, 1) from mneme.habits where name = 'Read';
+  update mneme.tasks set state = 'cancelled' where rhythm_days is not null and state = 'open';   -- retire section 13's habits
+  insert into mneme.tasks (source, title, rhythm_days, created_at) values ('standalone', 'Read', 127, now() - interval '5 days');
+  insert into mneme.tasks (source, title, rhythm_days, rhythm_target, created_at) values ('standalone', 'Water2', 127, 8, now() - interval '5 days');
+  perform mneme.check_in(id, today - 1, 1) from mneme.tasks where title = 'Read' and rhythm_days is not null;
+  perform mneme.check_in(id, today - 1, 8) from mneme.tasks where title = 'Water2';
+  perform mneme.check_in(id, today - 2, 1) from mneme.tasks where title = 'Read' and rhythm_days is not null;
   select * into r from mneme.calendar_month(today - 3, today + 3) where day = today - 1;
   perform t.ok(r.habits_due = 2 and r.habits_met = 2, 'calendar: all habits met yesterday');
   select * into r from mneme.calendar_month(today - 3, today + 3) where day = today - 2;
@@ -859,8 +989,10 @@ begin
   perform t.ok(exists (select 1 from mneme.note_revisions where note_id = n1), 'the old note text is kept in history');
   insert into mneme.tasks (source, title, status) values ('standalone', 'old chore', 'done') returning id into s1;
   k := mneme.clear_completed_tasks();
-  perform t.ok(k >= 2 and not exists (select 1 from mneme.tasks_active where status = 'done'),
+  perform t.ok(k >= 2 and not exists (select 1 from mneme.tasks_active where status = 'done' and habit_id is null),
                'clear_completed_tasks clears every done task (note + standalone)');
+  perform t.ok(exists (select 1 from mneme.tasks_active where status = 'done' and rhythm_days is not null),
+               'clear_completed_tasks keeps retired / graduated habits (their history)');
   select content into c from mneme.notes where id = n1;
   perform t.ok(c = E'plan\n- [ ] pack', 'open tasks and other text survive clearing');
   perform t.ok(exists (select 1 from mneme.tasks_active where id = t2 and status = 'open'), 'the open task is untouched');
@@ -1463,8 +1595,14 @@ begin
   select string_agg(g.name, ',' order by g.name) into qa from mneme.note_tags x join mneme.tags g on g.id = x.tag_id where x.user_id = a;
   select string_agg(g.name, ',' order by g.name) into qc from mneme.note_tags x join mneme.tags g on g.id = x.tag_id where x.user_id = c;
   perform t.ok(qa is not distinct from qc, 'tags (inline and manual) came back');
-  select count(*) into ca from mneme.habit_logs where user_id = a;  select count(*) into cc from mneme.habit_logs where user_id = c;
-  perform t.ok(ca = cc and (select count(*) from mneme.habits where user_id = a) = (select count(*) from mneme.habits where user_id = c), 'habits and their logs came back');
+  select string_agg(t.title || ':' || k.day || ':' || k.value || ':' || k.skipped || ':' || coalesce(k.note, '-'), ',' order by t.title, k.day) into qa
+    from mneme.task_checkins k join mneme.tasks t on t.id = k.task_id where k.user_id = a;
+  select string_agg(t.title || ':' || k.day || ':' || k.value || ':' || k.skipped || ':' || coalesce(k.note, '-'), ',' order by t.title, k.day) into qc
+    from mneme.task_checkins k join mneme.tasks t on t.id = k.task_id where k.user_id = c;
+  perform t.ok(qa is not null and qa = qc, 'habit check-ins came back');
+  select string_agg(title || ':' || rhythm_days || ':' || rhythm_target || ':' || coalesce(rhythm_unit, '-'), ',' order by title, rhythm_target) into qa from mneme.tasks where user_id = a and rhythm_days is not null;
+  select string_agg(title || ':' || rhythm_days || ':' || rhythm_target || ':' || coalesce(rhythm_unit, '-'), ',' order by title, rhythm_target) into qc from mneme.tasks where user_id = c and rhythm_days is not null;
+  perform t.ok(qa = qc, 'habits came back with their rhythm');
   select count(*) into ca from mneme.note_revisions where user_id = a;  select count(*) into cc from mneme.note_revisions where user_id = c;
   perform t.ok(ca = cc, 'note history came back');
   perform t.ok((select backup_enabled and backup_weekday = 3 from mneme.settings where user_id = c), 'settings came back');

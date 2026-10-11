@@ -145,7 +145,7 @@ function BoardPage() {
   const canvases = useQuery({ queryKey: ['canvases'], queryFn: listCanvases, staleTime: 30_000 })
   const list = canvases.data?.canvases ?? []
   const canvasId = param && param !== 'inbox' ? param : null
-  const [showDone, setShowDone] = useState(false)
+  const [showDone, setShowDone] = useState(true)
   const [naming, setNaming] = useState(false)
   const [name, setName] = useState('')
   const [editing, setEditing] = useState<Canvas | null>(null)

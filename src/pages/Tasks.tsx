@@ -14,6 +14,8 @@ import { ViewToggle } from '@/components/tasks/ViewToggle'
 import type { TaskItem, TaskBucket } from '@/types/db'
 import { IconCalendar, IconSearch, IconSnooze, IconX } from '@/components/icons'
 import { DueDialog } from '@/components/DueDialog'
+import { HabitStrip } from '@/components/HabitStrip'
+import { rhythmLabel } from '@/lib/habits'
 
 function TaskList({ items, empty }: { items: TaskItem[] | undefined; empty: string }) {
   if (!items) return <div className="skeleton h-10" />
@@ -73,8 +75,10 @@ export function Tasks() {
     try {
       const made = await addStandaloneTask(t, due?.date ?? (tab === 'today' ? today : null), due?.time ?? null)
       setTitle(''); setDue(null); refresh()
+      // a typed rhythm made it a habit: it lives in the strip, not the lists
+      if (made.rhythm_days) { void qc.invalidateQueries({ queryKey: ['habits'] }); toast(`Habit “${made.title}” · ${rhythmLabel(made.rhythm_days)}`) }
       // say when it's due if that isn't obvious from the list it lands in
-      if (made.due_date && (made.title !== t || due)) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
+      else if (made.due_date && (made.title !== t || due)) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
     } catch { toast('Couldn’t add the task.', { kind: 'error' }) }
   }
   const clearDone = async () => {
@@ -143,6 +147,7 @@ export function Tasks() {
                 )
               })}
             </div>
+            {tab === 'today' && <HabitStrip day={today} today={today} tz={tz} className="mb-3" />}
             <Card className="rise relative focus-within:z-20"
               aside={tab === 'completed' && !!lists.completed.data?.length
                 ? <button className="text-danger hover:underline" onClick={() => setConfirmClear(true)}>Clear all</button> : undefined}>

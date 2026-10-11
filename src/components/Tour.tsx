@@ -132,9 +132,9 @@ const STEPS: Step[] = [
   {
     to: '/habits', icon: IconHabit, title: 'Habits',
     lines: [
-      'Yes/no or counted, every day or on chosen weekdays.',
-      'Tick them from the chips under the capture box on Today.',
-      'Heatmap, streaks and your 30-day rate live here.',
+      'A habit is a task that repeats — yes/no or counted, every day or on chosen weekdays.',
+      <>Type <b>“stretch every day”</b> in any task box, or add one here. Subtasks make it a routine — and a subtask can have its own days.</>,
+      'Tick them from the chips on Today. Pause, graduate or retire them like any task.',
     ],
   },
   {

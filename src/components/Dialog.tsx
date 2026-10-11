@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { IconX } from '@/components/icons'
 
 /** Modal on the native <dialog>: focus trap, Esc to close and inert background come for free. */
-export function Dialog({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+export function Dialog({ open, onClose, title, children, wide, closable }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; closable?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const d = ref.current
@@ -17,7 +18,16 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
       aria-label={title}
       className={`m-auto w-[calc(100%-2rem)] ${wide ? 'max-w-2xl' : 'max-w-md'} glass-strong rounded-3xl p-0 text-ink`}
     >
-      {open && <div className="p-6">{children}</div>}
+      {open && (
+        <div className="relative p-6">
+          {closable && (
+            <button className="absolute right-4 top-4 rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink" title="Close" aria-label="Close" onClick={onClose}>
+              <IconX size={16} />
+            </button>
+          )}
+          {children}
+        </div>
+      )}
     </dialog>
   )
 }

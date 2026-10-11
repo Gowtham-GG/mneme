@@ -19,12 +19,17 @@ export async function setTaskState(id: string, state: TaskState): Promise<void> 
   if (error) throw toError(error)
 }
 
-/** A new main task. A date typed in the title ("… tomorrow 3pm") is read by the database; returns what it made of it. */
-export async function addStandaloneTask(title: string, due_date: string | null = null, due_time: string | null = null): Promise<{ title: string; due_date: string | null; due_time: string | null }> {
+export interface AddedTask { title: string; due_date: string | null; due_time: string | null; rhythm_days: number | null }
+
+/**
+ * A new main task. A date typed in the title ("… tomorrow 3pm") or a rhythm ("… every day", which makes
+ * it a habit) is read by the database; returns what it made of it.
+ */
+export async function addStandaloneTask(title: string, due_date: string | null = null, due_time: string | null = null): Promise<AddedTask> {
   const { data, error } = await supabase.from('tasks').insert({ source: 'standalone', title: title.trim(), due_date, due_time: due_date ? due_time : null })
-    .select('title,due_date,due_time').single()
+    .select('title,due_date,due_time,rhythm_days').single()
   if (error) throw toError(error)
-  return data as { title: string; due_date: string | null; due_time: string | null }
+  return data as AddedTask
 }
 
 /** Hide a task from every list until `until` (null = wake it now). */

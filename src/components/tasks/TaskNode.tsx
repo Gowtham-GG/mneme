@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useMedia } from '@/hooks/useMedia'
 import { childrenOf, isResolved, linksOf, STATES, type LinkEnd } from '@/lib/taskTree'
-import { formatDueDate } from '@/lib/dates'
+import { formatDueDate, todayKey } from '@/lib/dates'
+import { offToday, rhythmLabel } from '@/lib/habits'
 import { DuePicker, PriorityPicker } from './pickers'
 import { useTaskTree, useTaskUi } from './TaskUi'
 import type { TaskItem, TaskSequence, TaskTree } from '@/types/db'
-import { IconCheck, IconChevron, IconEdit, IconLock, IconMore, IconSnooze, IconSteps, IconX } from '@/components/icons'
+import { IconCheck, IconChevron, IconEdit, IconFlame, IconLock, IconMore, IconRepeat, IconSnooze, IconSteps, IconX } from '@/components/icons'
 
 /** Task id to ring (and scroll to) inside a whole-tree view. */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -22,9 +23,36 @@ const STATE_PILL: Partial<Record<TaskItem['state'], string>> = {
   cancelled: 'bg-panel text-faint',
 }
 const pill = 'rounded px-1.5 py-px text-[11px] leading-4'
+const HABIT_LABEL: Partial<Record<TaskItem['state'], string>> = { on_hold: 'Paused', done: 'Graduated', cancelled: 'Retired' }
+const STEP_LABEL: Partial<Record<TaskItem['state'], string>> = { on_hold: 'Skipped', cancelled: 'Dropped' }
+
+/** A habit or one of its steps: a round box ticked for today (a count adds one per tap). */
+function HabitBox({ t }: { t: TaskItem }) {
+  const ui = useTaskUi()
+  const { timezone: tz } = useSettings()
+  const on = !!t.checked_today
+  const asideHabit = t.rhythm_days !== null && t.state !== 'open' && t.state !== 'in_progress'
+  const asideStep = t.rhythm_days === null && (t.state === 'on_hold' || t.state === 'cancelled')
+  const off = offToday(t, todayKey(tz))
+  const counted = t.rhythm_target > 1 && t.child_count === 0
+  return (
+    <button
+      type="button" role="checkbox" aria-checked={on} disabled={asideHabit || asideStep || off}
+      aria-label={`${on ? 'Untick' : counted ? 'One more' : 'Tick'} for today: ${t.title}`}
+      title={asideHabit ? 'Set aside — make it Active to tick it' : asideStep ? 'Not part of the routine right now'
+        : off ? `Not on today — ${t.due_days ? rhythmLabel(t.due_days) : 'no days left'}`
+        : counted ? `${t.rhythm_target}${t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}${t.rhythm_days !== null ? ' a day' : ''} — tap adds one` : 'Today'}
+      onClick={() => void ui.act.checkIn(t, todayKey(tz), on && !counted ? -1 : 1)}
+      className={`mt-[3px] inline-flex size-4 shrink-0 items-center justify-center rounded-full border disabled:opacity-40 ${on ? 'border-accent bg-accent text-on-accent' : 'border-faint hover:border-accent'}`}
+    >
+      {on && <IconCheck size={11} strokeWidth={3} />}
+    </button>
+  )
+}
 
 function StatusBox({ t }: { t: TaskItem }) {
   const ui = useTaskUi()
+  if (t.habit_id) return <HabitBox t={t} />
   const resolved = isResolved(t.state)
   if (t.blocked) {
     return <span className="mt-[3px] inline-flex size-4 shrink-0 items-center justify-center text-faint" title="Blocked — waiting on what comes first" aria-label="Blocked"><IconLock size={15} /></span>
@@ -96,7 +124,7 @@ interface NodeProps {
 
 export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafOnly }: NodeProps) {
   const ui = useTaskUi()
-  const { timezone: tz } = useSettings()
+  const { timezone: tz, showStreaks } = useSettings()
   const narrow = useMedia('(max-width: 639px)')
   const highlight = useContext(HighlightContext)
   const flat = !tree
@@ -127,11 +155,12 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
   const startAdd = (k: 'sub' | 'seq') => { setOpen(true); setAdding(k) }
   // on a phone a date pill beside the title squeezes it to a word per line: it goes under the title instead
   // (an empty date stays up top as a small calendar icon)
+  // a habit and its steps never have dates
   const pickersBelow = narrow && !resolved && (!!t.due_date || !!t.priority)
   const pickers = !resolved && (
     <>
       {t.priority && <PriorityPicker priority={t.priority} onChange={(p) => void ui.act.priority(t, p)} />}
-      <DuePicker task={t} tz={tz} compact onChange={(d, time) => void ui.act.due(t, d, time)} />
+      {!t.habit_id && <DuePicker task={t} tz={tz} compact onChange={(d, time) => void ui.act.due(t, d, time)} />}
     </>
   )
 
@@ -177,10 +206,23 @@ export function TaskNode({ t, tree, depth = 0, step, siblings, parentSeqs, leafO
               <span className="tabular-nums">{t.note_public_id}</span>{t.note_title ? ` · ${t.note_title}` : ''}
             </Link>
           )}
-          {STATE_PILL[t.state] && <span className={`${pill} ${STATE_PILL[t.state]}`}>{STATES.find((s) => s.id === t.state)?.label}</span>}
+          {t.rhythm_days !== null && (
+            <button className={`${pill} inline-flex items-center gap-1 bg-accent-soft text-accent`} title="Repeats — change the rhythm" onClick={() => ui.openRhythm(t)}>
+              <IconRepeat size={11} />{rhythmLabel(t.rhythm_days)}{t.rhythm_target > 1 && t.child_count === 0 ? ` · ${t.rhythm_target}${t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}` : ''}
+            </button>
+          )}
+          {t.habit_id && t.rhythm_days === null && (t.step_days !== null || (t.rhythm_target > 1 && t.child_count === 0)) && (
+            <button className={`${pill} inline-flex items-center gap-1 bg-accent-soft text-accent`} title="Its own days and count — change" onClick={() => ui.openRhythm(t)}>
+              {t.step_days !== null && <><IconRepeat size={11} />{rhythmLabel(t.step_days)}</>}
+              {t.step_days !== null && t.rhythm_target > 1 && t.child_count === 0 && ' · '}
+              {t.rhythm_target > 1 && t.child_count === 0 && <span className="tabular-nums">{t.value_today ?? 0}/{t.rhythm_target}{t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}</span>}
+            </button>
+          )}
+          {showStreaks && !!t.streak && t.streak >= 2 && <span className={`${pill} tabular-nums text-important`} title={`${t.streak}-day streak`}><IconFlame size={11} className="-mt-0.5 mr-0.5 inline" />{t.streak}</span>}
+          {STATE_PILL[t.state] && <span className={`${pill} ${STATE_PILL[t.state]}`}>{(t.rhythm_days !== null ? HABIT_LABEL : t.habit_id ? STEP_LABEL : {})[t.state] ?? STATES.find((s) => s.id === t.state)?.label}</span>}
           {t.blocked && !parentBlocked && !t.sequence_id && <span className={`${pill} bg-panel text-faint`}>Blocked</span>}
           {t.snoozed && t.snoozed_until && <button className={`${pill} bg-panel text-muted hover:text-ink`} title="Wake it up now" onClick={() => void ui.act.snooze(t, null)}><IconSnooze size={12} className="-mt-0.5 mr-1 inline" />{formatDueDate(t.snoozed_until, tz)}</button>}
-          {t.child_count > 0 && <span className={`${pill} bg-task-soft tabular-nums text-task`}>{t.child_resolved}/{t.child_count}</span>}
+          {t.child_count > 0 && !t.habit_id && <span className={`${pill} bg-task-soft tabular-nums text-task`}>{t.child_resolved}/{t.child_count}</span>}
           {canvases.map((c) => <span key={c} className={`${pill} bg-accent-soft text-accent`}>{c}</span>)}
           {links.after.map((e) => <LinkChip key={e.link.id} end={e} label="after" onRemove={() => void ui.act.unlink(e.link.id)} />)}
           {links.before.map((e) => <LinkChip key={e.link.id} end={e} label="before" onRemove={() => void ui.act.unlink(e.link.id)} />)}
@@ -240,7 +282,8 @@ function SequenceBlock({ seq, steps, tree, depth, startAdding, onStarted }: { se
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   useEffect(() => { if (startAdding) { setAdding(true); onStarted() } }, [startAdding, onStarted])
-  const done = steps.filter((s) => isResolved(s.state)).length
+  // a habit's steps count what's ticked today
+  const done = steps.filter((s) => (s.habit_id ? s.checked_today : isResolved(s.state))).length
   const save = () => {
     setEditing(false)
     if (draft.trim() !== (seq.title ?? '')) void ui.act.renameSeq(seq.id, draft)

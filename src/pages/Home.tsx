@@ -7,6 +7,7 @@ import { addStandaloneTask, listTasks, setTaskDone } from '@/api/tasks'
 import { Calendar } from '@/components/Calendar'
 import { Card } from '@/components/Card'
 import { HabitStrip } from '@/components/HabitStrip'
+import { rhythmLabel } from '@/lib/habits'
 import { IconClock, IconEdit, IconSearch, IconStarFill } from '@/components/icons'
 import { DueDialog } from '@/components/DueDialog'
 import { NoteRow } from '@/components/NoteRow'
@@ -38,8 +39,9 @@ function DayAgenda({ day, tz, onToggle }: { day: string; tz: string; onToggle: (
     try {
       const made = await addStandaloneTask(title, day, time || null)
       setTitle(''); setTime('')
-      // a date typed into the title was read: say what it became
-      if (made.title !== title.trim() && made.due_date) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
+      // a typed rhythm made it a habit (it joins the strip); a typed date: say what it became
+      if (made.rhythm_days) { void qc.invalidateQueries({ queryKey: ['habits'] }); toast(`Habit “${made.title}” · ${rhythmLabel(made.rhythm_days)}`) }
+      else if (made.title !== title.trim() && made.due_date) toast(`Added “${made.title}” · ${formatDueDate(made.due_date, tz)}${made.due_time ? ` · ${formatTimeOfDay(made.due_time)}` : ''}`)
       void qc.invalidateQueries({ queryKey: ['tasks'] }); void qc.invalidateQueries({ queryKey: ['notes'] })
     } catch { toast('Couldn’t add that.', { kind: 'error' }) } finally { setBusy(false) }
   }

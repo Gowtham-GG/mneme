@@ -206,6 +206,13 @@ export function progressOf(data: TaskTree, id: string, today: string): Progress 
   const walk = (p: string) => { for (const k of kids.get(p) ?? []) (kids.has(k.id) ? walk(k.id) : leaves.push(k)) }
   walk(id)
   if (!leaves.length) return null
+  // a habit's routine: how much of today's steps are ticked (steps set aside don't count)
+  if (data.tasks.find((t) => t.id === id)?.habit_id) {
+    const live = leaves.filter((t) => t.state !== 'on_hold' && t.state !== 'cancelled' && t.state !== 'done')
+    if (!live.length) return null
+    const ticked = live.filter((t) => t.checked_today).length
+    return { done: ticked, total: live.length, left: live.length - ticked, daysLeft: null, pace: null }
+  }
   const done = leaves.filter((t) => t.state === 'done' || t.state === 'cancelled').length
   const left = leaves.length - done
   const due = data.tasks.find((t) => t.id === id)?.due_date

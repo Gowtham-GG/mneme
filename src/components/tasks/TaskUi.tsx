@@ -6,21 +6,24 @@ import {
   listCanvases, moveUnder, pickableTasks, renameSequence, renameTask, reorderTask, setTaskDone, setTaskOnCanvas, setTaskState, snoozeTask,
   taskMentions, updateTask, updateTaskLink,
 } from '@/api/tasks'
+import { checkIn, habitsForDay, setCheckinNote, setRhythm, setStepRhythm, type Rhythm, type StepRhythm } from '@/api/habits'
 import { ruleMessage } from '@/api/errors'
 import { ConfirmDialog, Dialog } from '@/components/Dialog'
 import { DueDialog } from '@/components/DueDialog'
+import { CheckinNoteDialog, RhythmDialog, StepRhythmDialog } from '@/components/RhythmFields'
 import { useDebounced } from '@/hooks/useDebounced'
 import { useSettings } from '@/contexts/SettingsContext'
 import { addDays, formatDueDate, todayKey } from '@/lib/dates'
 import { useToast } from '@/contexts/ToastContext'
 import { copySecret } from '@/lib/clipboard'
 import { descendantIds, isResolved, linksOf, nudgeOrder, STATES, taskAsText, type LinkEnd } from '@/lib/taskTree'
+import { rhythmLabel } from '@/lib/habits'
 import { PRIORITIES } from './pickers'
 import { TaskNode, HighlightContext } from './TaskNode'
 import type { TaskItem, TaskPriority, TaskSequence, TaskState, TaskTree } from '@/types/db'
 import {
   IconArrowDown, IconArrowUp, IconBoard, IconCopy, IconEdit, IconHourglass, IconLink, IconMoveUnder, IconNotes, IconPullIn,
-  IconSearch, IconSnooze, IconSteps, IconSubtask, IconSwap, IconTree, IconUnlink, IconUnnest,
+  IconRepeat, IconSearch, IconSnooze, IconSteps, IconSubtask, IconSwap, IconTree, IconUnlink, IconUnnest,
 } from '@/components/icons'
 
 export function useTaskTree(rootId: string | undefined, enabled = true) {
@@ -44,7 +47,7 @@ function useActions(confirm: (r: ConfirmReq) => void) {
   const qc = useQueryClient()
   const { toast } = useToast()
   const refresh = () => {
-    for (const k of ['tasks', 'notes', 'note-context', 'due-task-count', 'canvases']) void qc.invalidateQueries({ queryKey: [k] })
+    for (const k of ['tasks', 'notes', 'note-context', 'due-task-count', 'canvases', 'habits']) void qc.invalidateQueries({ queryKey: [k] })
   }
   const run = async (p: () => Promise<unknown>, fail: string, ok?: string) => {
     try { await p(); refresh(); if (ok) toast(ok); return true } catch (e) { toast(ruleMessage(e, fail), { kind: 'error' }); return false }
@@ -56,6 +59,12 @@ function useActions(confirm: (r: ConfirmReq) => void) {
         toast(`Done: ${t.title}`, { action: { label: 'Undo', onClick: () => void run(() => setTaskDone(t.id, false), 'Couldn’t undo.') } })
     },
     state: (t: TaskItem, s: TaskState) => run(() => setTaskState(t.id, s), 'Couldn’t change the status.'),
+    /** Tick (+1) / untick (−1) a habit or one of its steps for `day`; a count habit adds one. */
+    checkIn: (t: TaskItem, day: string, delta: number) => run(() => checkIn(t.id, day, delta), 'Couldn’t save that.'),
+    note: (t: TaskItem, day: string, note: string) => run(() => setCheckinNote(t.id, day, note), 'Couldn’t save the note.'),
+    rhythm: (t: TaskItem, r: Rhythm | null) =>
+      run(() => setRhythm(t.id, r), 'Couldn’t change that.', r === null ? 'No longer repeats' : t.rhythm_days === null ? `Habit · ${rhythmLabel(r.rhythm_days)}` : undefined),
+    stepRhythm: (t: TaskItem, r: StepRhythm) => run(() => setStepRhythm(t.id, r), 'Couldn’t change that.'),
     due: (t: TaskItem, d: string | null, time: string | null) =>
       run(() => updateTask(t.id, { due_date: d, due_time: d ? time : null }), 'Couldn’t set the date.'),
     priority: (t: TaskItem, p: TaskPriority | null) => run(() => updateTask(t.id, { priority: p }), 'Couldn’t set the priority.'),
@@ -113,6 +122,8 @@ interface TaskUiApi {
   openCanvases: (t: TaskItem) => void
   openTree: (rootId: string, highlightId?: string) => void
   openSnooze: (t: TaskItem) => void
+  openRhythm: (t: TaskItem) => void
+  openNote: (t: TaskItem) => void
   canvasNames: (taskId: string) => string[]
 }
 
@@ -133,6 +144,10 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
   const [treeReq, setTreeReq] = useState<{ rootId: string; highlightId?: string } | null>(null)
   const [confirmReq, setConfirmReq] = useState<ConfirmReq | null>(null)
   const [snoozeFor, setSnoozeFor] = useState<TaskItem | null>(null)
+  const [rhythmFor, setRhythmFor] = useState<TaskItem | null>(null)
+  const [noteFor, setNoteFor] = useState<{ t: TaskItem; note: string } | null>(null)
+  const { timezone: tz } = useSettings()
+  const qc = useQueryClient()
   const act = useActions(setConfirmReq)
   const canvases = useQuery({ queryKey: ['canvases'], queryFn: listCanvases, staleTime: 30_000 })
 
@@ -145,9 +160,17 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
       openCanvases: setCanvasFor,
       openTree: (rootId, highlightId) => setTreeReq({ rootId, highlightId }),
       openSnooze: setSnoozeFor,
+      openRhythm: setRhythmFor,
+      openNote: (t) => {
+        // start from the note already written today, if any
+        const today = todayKey(tz)
+        void qc.fetchQuery({ queryKey: ['habits', 'day', today], queryFn: () => habitsForDay(today) })
+          .then((rows) => rows.find((h) => h.id === t.id)?.note ?? '', () => '')
+          .then((note) => setNoteFor({ t, note }))
+      },
       canvasNames: (taskId) => (canvases.data?.membership ?? []).filter((m) => m.task_id === taskId).map((m) => byId.get(m.canvas_id) ?? '').filter(Boolean),
     }
-  }, [act, canvases.data])
+  }, [act, canvases.data, qc, tz])
 
   return (
     <Ctx.Provider value={api}>
@@ -157,13 +180,33 @@ export function TaskUiProvider({ children }: { children: ReactNode }) {
       <PickerDialog req={picker} onClose={() => setPicker(null)} />
       <CanvasDialog task={canvasFor} onClose={() => setCanvasFor(null)} />
       <SnoozeDialog task={snoozeFor} onClose={() => setSnoozeFor(null)} />
+      {/* a habit's step gets its own days within its parent's, and a count */}
+      <StepRhythmDialog open={!!rhythmFor && isHabitStep(rhythmFor)} title={rhythmFor?.title ?? ''} group={!!rhythmFor && rhythmFor.child_count > 0}
+        allowed={rhythmFor?.parent_days ?? 127}
+        initial={{ step_days: rhythmFor?.step_days ?? null, rhythm_target: rhythmFor?.rhythm_target ?? 1, rhythm_unit: rhythmFor?.rhythm_unit ?? null }}
+        onClose={() => setRhythmFor(null)} onSave={(r) => rhythmFor && void act.stepRhythm(rhythmFor, r)} />
+      <RhythmDialog open={!!rhythmFor && !isHabitStep(rhythmFor)} title={rhythmFor?.title ?? ''} steps={!!rhythmFor && rhythmFor.child_count > 0}
+        initial={rhythmFor?.rhythm_days ? { rhythm_days: rhythmFor.rhythm_days, rhythm_target: rhythmFor.rhythm_target, rhythm_unit: rhythmFor.rhythm_unit } : null}
+        onClose={() => setRhythmFor(null)} onSave={(r) => rhythmFor && void act.rhythm(rhythmFor, r)}
+        onStop={rhythmFor?.rhythm_days ? () => void act.rhythm(rhythmFor, null) : undefined} />
+      <CheckinNoteDialog open={!!noteFor} title={noteFor?.t.title ?? ''} initial={noteFor?.note ?? ''}
+        onClose={() => setNoteFor(null)} onSave={(n) => noteFor && void act.note(noteFor.t, todayKey(tz), n)} />
       <ConfirmDialog open={!!confirmReq} title={confirmReq?.title ?? ''} body={confirmReq?.body ?? ''} danger
         confirmLabel={confirmReq?.confirmLabel ?? 'OK'} onClose={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onConfirm()} />
     </Ctx.Provider>
   )
 }
 
+const isHabitStep = (t: TaskItem) => !!t.habit_id && t.rhythm_days === null
+
 // ------------------------------------------------------------------ menu --
+
+const HABIT_STATES: { id: TaskState; label: string }[] = [
+  { id: 'open', label: 'Active' }, { id: 'on_hold', label: 'Paused' }, { id: 'done', label: 'Graduated' }, { id: 'cancelled', label: 'Retired' },
+]
+const STEP_STATES: { id: TaskState; label: string }[] = [
+  { id: 'open', label: 'In the routine' }, { id: 'on_hold', label: 'Skip for now' }, { id: 'cancelled', label: 'Dropped' },
+]
 
 const chip = (on: boolean) => `rounded-full px-3 py-1.5 text-sm ${on ? 'bg-accent font-medium text-on-accent' : 'bg-panel hover:bg-hover'}`
 /** One row of an action menu: tinted icon, label, one-line hint (and an optional preview on the right). */
@@ -256,14 +299,18 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
   const down = siblings && reorderable ? nudgeOrder(siblings, t.id, 1) : null
   const noteHint = t.source === 'note' ? ' (rewrites the note)' : ''
   const canReorder = up !== null || down !== null
+  // a habit's statuses read as what they mean for it; its steps are ticked per day, so they only get skipped or dropped
+  const isHabit = t.rhythm_days !== null
+  const isStep = !!t.habit_id && !isHabit
+  const states = isHabit ? HABIT_STATES : isStep ? STEP_STATES : STATES
 
   return (
-    <Dialog open onClose={onClose} title={t.title} wide>
-      <h2 className="mb-4 line-clamp-2 text-lg font-semibold">{t.title}</h2>
+    <Dialog open onClose={onClose} title={t.title} wide closable>
+      <h2 className="mb-4 line-clamp-2 pr-8 text-lg font-semibold">{t.title}</h2>
       <div className="mb-4 grid gap-3 sm:grid-cols-[auto_1fr]">
         <span className="pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Status</span>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Status">
-          {STATES.map((s) => (
+          {states.map((s) => (
             <button key={s.id} aria-pressed={t.state === s.id} className={chip(t.state === s.id)}
               onClick={then(() => { if (s.id !== t.state) void ui.act.state(t, s.id) })}>{s.label}</button>
           ))}
@@ -298,7 +345,7 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
             title: `Relate “${t.title}” to…`, exclude: new Set([t.id]),
             onPick: (p) => void ui.act.link(t.id, p.id, 'related'),
           })) },
-          { icon: IconMoveUnder, label: 'Move under…', hint: `Make this a subtask of another task${noteHint}`, onClick: then(() => ui.pick({
+          !isHabit && { icon: IconMoveUnder, label: 'Move under…', hint: `Make this a subtask of another task${noteHint}`, onClick: then(() => ui.pick({
             title: `Move “${t.title}” under…${noteHint}`, exclude: new Set([t.id, ...below]),
             onPick: (p) => void ui.act.moveUnder(t, p.id, null, `Moved under ${p.title}`),
           })) },
@@ -310,9 +357,21 @@ function MenuDialog({ req, onClose }: { req: MenuReq | null; onClose: () => void
           !t.parent_id && { icon: IconBoard, label: 'Canvases…', hint: 'Choose which boards show this task', onClick: then(() => ui.openCanvases(t)) },
         ]} />
         <div className="grid gap-2 sm:grid-cols-3">
-          <ActionGroup title="Later" cols={1} acts={[t.snoozed
-            ? { icon: IconSnooze, label: 'Wake up', hint: 'Show it again now', onClick: then(() => void ui.act.snooze(t, null)) }
-            : { icon: IconSnooze, label: 'Snooze…', hint: 'Hide it until a later day', onClick: then(() => ui.openSnooze(t)) }]} />
+          {isHabit || isStep ? (
+            <ActionGroup title="Repeat" cols={1} acts={[
+              isHabit && { icon: IconRepeat, label: 'Rhythm…', hint: `${rhythmLabel(t.rhythm_days!)} — change days, target, or stop`, onClick: then(() => ui.openRhythm(t)) },
+              isHabit && { icon: IconEdit, label: 'Note for today', hint: 'A line about how it went', onClick: then(() => ui.openNote(t)) },
+              isStep && { icon: IconRepeat, label: 'Days & count…', hint: `${t.step_days !== null ? rhythmLabel(t.step_days) : 'Same days as above'}${t.rhythm_target > 1 && t.child_count === 0 ? ` · ${t.rhythm_target}${t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}` : ''} — its own days, or a count like 3 sets`, onClick: then(() => ui.openRhythm(t)) },
+              isStep && { icon: IconTree, label: 'Habit', hint: 'Open the routine this step is part of', onClick: then(() => ui.openTree(t.root_id, t.id)) },
+            ]} />
+          ) : (
+            <ActionGroup title="Later" cols={1} acts={[
+              t.snoozed
+                ? { icon: IconSnooze, label: 'Wake up', hint: 'Show it again now', onClick: then(() => void ui.act.snooze(t, null)) }
+                : { icon: IconSnooze, label: 'Snooze…', hint: 'Hide it until a later day', onClick: then(() => ui.openSnooze(t)) },
+              !t.parent_id && t.source === 'standalone' && { icon: IconRepeat, label: 'Make it a habit…', hint: 'Repeat it on chosen days, with a streak', onClick: then(() => ui.openRhythm(t)) },
+            ]} />
+          )}
           <ActionGroup title="Share" cols={1} acts={[
             { icon: IconCopy, label: 'Copy text', hint: 'The task and its subtasks, to paste anywhere', onClick: then(() => void ui.act.copyText(t)) },
             { icon: IconLink, label: 'Copy link', hint: `Paste [[${t.code}]] into a note`, onClick: then(() => void ui.act.copyLink(t)) },

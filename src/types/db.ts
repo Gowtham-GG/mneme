@@ -95,6 +95,24 @@ export interface TaskItem {
   snoozed_until: string | null
   /** Hidden from the lists until snoozed_until. */
   snoozed: boolean
+  /** Set = this is a habit: the weekdays it's due on (Monday = 1 … Sunday = 64). */
+  rhythm_days: number | null
+  rhythm_target: number
+  rhythm_unit: string | null
+  /** The habit this task is (or is a step of); null for an ordinary task. */
+  habit_id: string | null
+  /** For a habit or one of its steps: ticked for today. */
+  checked_today: boolean | null
+  /** For a habit: its current streak. */
+  streak: number | null
+  /** A habit's step: its own weekdays inside the habit ("Upper body" Mon/Wed/Fri); null = whenever its parent is on. */
+  step_days: number | null
+  /** Habit or step: the weekdays it is actually on (its days, its parents', and its steps'). */
+  due_days: number | null
+  /** A habit's step: the weekdays its parent is on — what its own days can be picked from. */
+  parent_days: number | null
+  /** Habit or step: today's logged count (sets done, glasses drunk…). */
+  value_today: number | null
 }
 
 export interface TaskSequence {
@@ -134,31 +152,41 @@ export interface CalendarDay {
   habits_met: number
 }
 
-export interface Habit {
-  id: string
-  user_id: string
-  name: string
-  /** 1 = a yes/no habit; more = a daily count to reach */
-  target: number
-  unit: string | null
-  /** weekday bitmask: Monday = 1 … Sunday = 64; 127 = every day */
-  days: number
-  position: number
-  created_at: string
-  archived_at: string | null
-}
-
-/** Row shape of the habits_for_day() RPC. */
+/** Row shape of the habits_for_day() RPC: a habit task on that day. */
 export interface HabitDay {
   id: string
   name: string
+  /** daily count to reach (1 = yes/no); for a routine, how many steps it has */
   target: number
   unit: string | null
+  /** weekdays it is on: Monday = 1 … Sunday = 64; 127 = every day (narrowed to the days its steps are on) */
   days: number
-  position: number
+  state: TaskState
+  created_at: string
   due: boolean
+  /** waiting on a "must happen first" task: not due until that's done */
+  blocked: boolean
+  /** logged count; for a routine, steps ticked */
   value: number
   streak: number
+  /** the day's one-line note */
+  note: string | null
+  /** a routine's live steps that are on that day (its subtasks, nested), each ticked for the day or not */
+  steps: HabitStep[]
+}
+
+/** A step of a habit on one day; `steps` are its own (a group of exercises under "Upper body"). */
+export interface HabitStep {
+  id: string
+  title: string
+  done: boolean
+  /** logged count — reaches `target` when done ("3 sets") */
+  value: number
+  target: number
+  unit: string | null
+  /** its own weekdays; null = its parent's */
+  days: number | null
+  steps: HabitStep[]
 }
 
 export type TaskBucket = 'today' | 'upcoming' | 'no_date' | 'completed' | 'snoozed'

@@ -24,8 +24,10 @@ actions on the Notes/Archive/Trash/Search lists (star, tag, archive, trash, rest
 saved searches, an overdue/due-today count on the Tasks dock icon, optional due-date reminder emails (§15), and a
 month calendar on Home (ring = notes written that day, dots = scheduled/tasks/overdue/done; pick a day to see its
 notes and agenda, or add a task/appointment to it), and a daily journal (one page per day — ✎ Journal in the
-day agenda, or press J; `type:journal` finds them all), and habits (yes/no or daily counts, every day or chosen weekdays; tap chips
-under the capture box; heatmap, streaks (can be turned off in Settings) and 30-day rate at /habits). The Tasks page
+day agenda, or press J; `type:journal` finds them all), and habits — tasks with a rhythm (yes/no or daily counts, every day or chosen weekdays; type “stretch every day”
+in any task box, or use “Make it a habit…” on a task; its subtasks make a routine ticked per day, nested as deep as you like — a step can have its own days (“Upper body every mon, wed and fri” under a daily “Gym”) and a count (“3 sets”), and a day none of its steps are on is a rest day; paused / graduated /
+retired are its statuses; tap the chips on Today; heatmap, streaks (can be turned off in Settings), 30-day rate and
+day notes at /habits). The Tasks page
 has tabs with counts, task search, and delete for any task (a task from a note also loses its line in that note).
 
 ---
@@ -204,6 +206,14 @@ Files in `supabase/migrations/`, in order:
 20260923100200_mneme_18_journal.sql      daily journal: note_type 'journal' + journal_date, open_journal() RPC
 20260924100000_mneme_19_habits.sql       habits + habit_logs (yes/no or counts, weekday schedules), bump_habit/habits_for_day RPCs
 20260924100100_mneme_20_habit_marks_task_delete.sql  habit calendar marks, settings.show_streaks, delete_task/clear_completed_tasks
+20260924100200_mneme_21_rename_task.sql  rename_task (rewrites a note task's line)
+20260925100000_mneme_22_task_trees.sql   task trees: states, subtasks, sequences, links, canvases
+20260925100100_mneme_23_task_tree_reads.sql  tasks_active roots, task_tree(), list buckets for main tasks
+20260926100000_mneme_24_note_task_trees.sql  note tasks as trees ([/] [-] [h] markers, indentation), move_task, T- codes
+20260926100100_mneme_25_board.sql        board positions + board_data()
+20260927100000_mneme_26_dates_snooze_push_backup.sql  typed dates, snooze, push devices, backup/import
+20260928100000_mneme_27_habit_tasks.sql  habits become tasks with a rhythm: task_checkins, check_in(), routines;
+                                         moves habits/habit_logs over and drops them (apply before the new frontend)
 ```
 
 **Option A – SQL editor (same workflow as Argus).** Paste each file, in order, into *SQL Editor → New query → Run*.

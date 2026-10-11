@@ -12,10 +12,11 @@ import {
 } from '@/lib/board'
 import { formatDueDate, taskDueStatus, todayKey } from '@/lib/dates'
 import { childrenOf, descendantIds, isResolved, STATES, type LinkEnd } from '@/lib/taskTree'
+import { offToday, rhythmLabel } from '@/lib/habits'
 import { TaskNode } from './TaskNode'
 import { ActionGroup, LinkList, TaskMentions, useTaskUi } from './TaskUi'
 import type { TaskItem } from '@/types/db'
-import { IconCheck, IconCopy, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconPullIn, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
+import { IconCheck, IconCopy, IconFlame, IconHourglass, IconLink, IconLock, IconMoveUnder, IconPlus, IconPullIn, IconRepeat, IconTree, IconUnnest, IconWand, IconX } from '@/components/icons'
 
 type View = { x: number; y: number; k: number }
 type Gesture =
@@ -67,9 +68,14 @@ const PACE: Record<string, [string, string]> = { tight: ['tight', 'text-importan
 
 function BoardBox({ t, at, dim, selected, connecting, progress }: { t: TaskItem; at: Pt; dim: boolean; selected: boolean; connecting: boolean; progress: Progress | null }) {
   const ui = useTaskUi()
-  const { timezone: tz } = useSettings()
+  const { timezone: tz, showStreaks } = useSettings()
   const resolved = isResolved(t.state)
   const waiting = !resolved && t.child_count > t.child_resolved
+  // a habit (or one of its steps) is ticked for today, not finished
+  const habit = !!t.habit_id
+  const ticked = !!t.checked_today
+  const counted = t.rhythm_target > 1 && t.child_count === 0
+  const off = habit && offToday(t, todayKey(tz))
   const due = t.due_date ? taskDueStatus(t.due_date, t.due_time, tz) : null
   return (
     <div
@@ -78,7 +84,14 @@ function BoardBox({ t, at, dim, selected, connecting, progress }: { t: TaskItem;
       style={{ left: at.x, top: at.y, width: BOX_W, height: BOX_H }}
     >
       <div className="flex min-w-0 items-start gap-1.5">
-        {t.blocked && !resolved ? (
+        {habit ? (
+          <button type="button" role="checkbox" aria-checked={ticked} aria-label={`${ticked ? 'Untick' : 'Tick'} for today: ${t.title}`}
+            disabled={(t.state !== 'open' && t.state !== 'in_progress') || off} title={off ? 'Not on today' : counted ? 'Tap adds one' : 'Today'}
+            onClick={() => void ui.act.checkIn(t, todayKey(tz), ticked && !counted ? -1 : 1)}
+            className={`mt-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border disabled:opacity-40 ${ticked ? 'border-accent bg-accent text-on-accent' : 'border-faint'}`}>
+            {ticked && <IconCheck size={9} strokeWidth={3} />}
+          </button>
+        ) : t.blocked && !resolved ? (
           <span className="mt-0.5 shrink-0 text-faint" title="Blocked — waiting on what comes first" aria-label="Blocked"><IconLock size={13} /></span>
         ) : (
           <button type="button" role="checkbox" aria-checked={resolved} aria-label={`${resolved ? 'Reopen' : 'Complete'}: ${t.title}`}
@@ -91,9 +104,12 @@ function BoardBox({ t, at, dim, selected, connecting, progress }: { t: TaskItem;
         <span className={`line-clamp-2 text-[13px] leading-snug ${resolved ? 'text-faint line-through' : t.blocked ? 'text-muted' : ''}`}>{t.title}</span>
       </div>
       <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] text-faint">
+        {(t.rhythm_days ?? t.step_days) !== null && <span className="inline-flex items-center gap-0.5 text-accent"><IconRepeat size={10} />{rhythmLabel((t.rhythm_days ?? t.step_days)!)}</span>}
+        {habit && counted && <span className="tabular-nums text-accent">{t.value_today ?? 0}/{t.rhythm_target}{t.rhythm_unit ? ` ${t.rhythm_unit}` : ''}</span>}
+        {t.rhythm_days !== null && showStreaks && !!t.streak && t.streak >= 2 && <span className="tabular-nums text-important"><IconFlame size={10} className="-mt-0.5 inline" />{t.streak}</span>}
         {t.state !== 'open' && !resolved && <span className={t.state === 'in_progress' ? 'text-accent' : 'text-important'}>{STATES.find((s) => s.id === t.state)?.label}</span>}
         {progress ? <span className="tabular-nums text-task">{progress.left ? `${progress.left} left` : 'all done'}</span>
-          : t.child_count > 0 && <span className="tabular-nums text-task">{t.child_resolved}/{t.child_count}</span>}
+          : t.child_count > 0 && !habit && <span className="tabular-nums text-task">{t.child_resolved}/{t.child_count}</span>}
         {progress?.pace && PACE[progress.pace] && <span className={`font-medium ${PACE[progress.pace][1]}`}>{PACE[progress.pace][0]}</span>}
         {t.due_date && <span className={due === 'overdue' ? 'text-danger' : ''}>{formatDueDate(t.due_date, tz)}</span>}
         {t.note_public_id && <span className="tabular-nums">{t.note_public_id}</span>}
@@ -508,7 +524,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
         </div>
       )}
 
-      <Dialog open={!!ask} onClose={() => setAsk(null)} title="Connect two tasks" wide>
+      <Dialog open={!!ask} onClose={() => setAsk(null)} title="Connect two tasks" wide closable>
         {ask && (() => {
           const { a, b } = ask
           const A = `“${short(a.title)}”`, B = `“${short(b.title)}”`
@@ -529,7 +545,7 @@ export function BoardSurface({ data, board, canvasId, focus, onFocusDone, showDo
           const aUnderB = a.parent_id === b.id ? 'It’s already there' : descendantIds(data, a.id).has(b.id) ? `Not possible — ${B} is inside ${A}` : null
           return (
             <>
-              <h2 className="mb-3 text-lg font-semibold">{existing.length || child || stepPair ? 'Connection' : 'Connect two tasks'}</h2>
+              <h2 className="mb-3 pr-8 text-lg font-semibold">{existing.length || child || stepPair ? 'Connection' : 'Connect two tasks'}</h2>
               <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
                 <span className="truncate rounded-xl bg-panel px-3 py-2 font-medium" title={a.title}>{a.title}</span>
                 <IconLink size={16} className="text-faint" />
